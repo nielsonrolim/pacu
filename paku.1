@@ -1,0 +1,118 @@
+.TH PAKU 1 2026-11-21 "paku 0.1.0" "User Commands"
+.SH NAME
+paku \- a small package-management wrapper around paru and pacman
+.SH SYNOPSIS
+.B paku
+.I subcommand
+.RI [ args ...]
+.br
+.B paku
+.RB [ \-\-help | \-\-version ]
+.SH DESCRIPTION
+.B paku
+gives everyday package management on Arch Linux and its derivatives a smaller set of subcommands.
+It uses
+.BR paru (8)
+when it is on the PATH, so the AUR is included; otherwise
+.BR pacman (8),
+with
+.BR sudo (8)
+for the operations that change the system (not when run as root), and the official repositories only.
+Commands run directly, never through a shell, and
+.B paku
+exits with their exit code.
+.SH SUBCOMMANDS
+.TP
+.BR upgrade ", " up
+.B paru \-Syu
+(or
+.BR "sudo pacman \-Syu" ),
+then
+.B flatpak upgrade
+if flatpak is installed. Exits with the first failure.
+.TP
+.BR maintain ", " cu ", " full ", " full\-upgrade " [" \fIargs\fR ...]
+Runs
+.B cachy\-update
+(or
+.BR arch\-update )
+with the arguments.
+.TP
+.BR check ", " co
+Lists pending updates:
+.B cachy\-update \-\-list
+or
+.B arch\-update \-\-list
+when installed, otherwise
+.B paru \-Qu
+(without paru,
+.BR checkupdates ,
+else
+.BR "pacman \-Qu" ).
+.TP
+.BR update ", " refresh
+.B paru \-Sy
+(or
+.BR "sudo pacman \-Sy" ).
+.TP
+.BR search ", " s " " \fIpkg\fR ...
+.B paru \-Ss
+(or
+.BR "pacman \-Ss" ).
+.TP
+.BR install ", " add ", " i " " \fIpkg\fR ...
+.B paru \-S
+(or
+.BR "sudo pacman \-S" ).
+.TP
+.BR remove ", " rm ", " uninstall " " \fIpkg\fR ...
+.B paru \-Rns
+(or
+.BR "sudo pacman \-Rns" ).
+.TP
+.BR info " " \fIpkg\fR ...
+.B paru \-Si
+(or
+.BR "pacman \-Si" ,
+then
+.B pacman \-Qi
+if the package is not in the repositories).
+.TP
+.BR owns " " \fIfile\fR ...
+.BR "pacman \-Qo" .
+.TP
+.BR files " " \fIpkg\fR ...
+.BR "pacman \-Ql" .
+.TP
+.BR list ", " explicit
+.BR "pacman \-Qe" .
+.TP
+.BR aur ", " aur\-list
+.BR "pacman \-Qm" .
+.TP
+.BR aur\-audit ", " aur\-sec ", " aur\-security
+Fetches the Arch Linux AUR compromised-package list with
+.B curl
+and checks the installed foreign packages against it.
+.TP
+.B clean
+.B paru \-Sc
+(or
+.BR "sudo pacman \-Sc" ).
+.TP
+.BR autoremove ", " orphans
+Removes the orphans
+.RB ( "pacman \-Qdtq" )
+with
+.B \-Rns.
+.TP
+.BR completions " " bash | zsh | fish
+Prints the completion script for the shell.
+.SH EXIT STATUS
+The exit code of the command run. 1 with no subcommand, an unknown one or a missing argument;
+.B aur\-audit
+exits 1 when an installed package is on the list or the list can't be fetched.
+.SH SEE ALSO
+.BR paru (8),
+.BR pacman (8),
+.BR checkupdates (8)

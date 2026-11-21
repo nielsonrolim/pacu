@@ -1,178 +1,160 @@
-# pak
+<p align="center"><img src="assets/paku-wordmark.svg" alt="paku" height="96"></p>
 
-A small [fish shell](https://fishshell.com/) wrapper around [`paru`](https://github.com/Morganamilo/paru) that exposes a simpler, easier-to-remember subcommand surface for everyday Arch Linux package management.
+# paku
 
-```fish
-pak upgrade             # paru -Syu (and flatpak upgrade if available)
-pak maintain [args]     # full Cachy-Update maintenance run (cachy-update)
-pak check               # list pending updates without applying them
-pak update              # paru -Sy (refresh package DB only)
-pak search <pkg>        # paru -Ss <pkg>
-pak install <pkg>...    # paru -S <pkg>
-pak remove <pkg>...     # paru -Rns <pkg>
-pak info <pkg>          # paru -Si <pkg>
-pak owns <file>         # pacman -Qo <file>
-pak files <pkg>         # pacman -Ql <pkg>
-pak list                # explicitly installed packages (pacman -Qe)
-pak aur                 # AUR/foreign packages (pacman -Qm)
-pak aur-audit           # check installed AUR packages against the compromised list
-pak clean               # paru -Sc
-pak autoremove          # remove orphaned packages (pacman -Qdtq | paru -Rns)
+A small package-management wrapper around [`paru`](https://github.com/Morganamilo/paru) and `pacman`, for Arch Linux and its derivatives (CachyOS, Swaydesk Arch, ...). It exposes a simpler, easier-to-remember subcommand surface for everyday package management, in any shell.
+
+paku is the Rust successor of the fish function [pak](https://github.com/nielsonrolim/pak); its history is kept here.
+
+```sh
+paku upgrade             # paru -Syu (and flatpak upgrade if available)
+paku maintain [args]     # full Cachy-Update maintenance run (cachy-update)
+paku check               # list pending updates without applying them
+paku update              # paru -Sy (refresh package DB only)
+paku search <pkg>        # paru -Ss <pkg>
+paku install <pkg>...    # paru -S <pkg>
+paku remove <pkg>...     # paru -Rns <pkg>
+paku info <pkg>          # paru -Si <pkg>
+paku owns <file>         # pacman -Qo <file>
+paku files <pkg>         # pacman -Ql <pkg>
+paku list                # explicitly installed packages (pacman -Qe)
+paku aur                 # AUR/foreign packages (pacman -Qm)
+paku aur-audit           # check installed AUR packages against the compromised list
+paku clean               # paru -Sc
+paku autoremove          # remove orphaned packages
+paku completions <shell> # print the bash, zsh or fish completions
 ```
 
-Tab completion is wired up for every subcommand: repo packages for `install` / `search`, repo + installed for `info`, installed packages for `remove` / `files`, and filesystem paths for `owns`.
+## With or without paru
+
+paku uses `paru` when it's on your PATH, so the AUR is included. Without it, paku uses `pacman` and the official repos only, with `sudo` for the operations that change the system (`upgrade`, `update`, `install`, `remove`, `clean`, `autoremove`). paku never installs an AUR helper for you.
+
+| Subcommand   | With paru                 | Without paru                                       |
+| ------------ | ------------------------- | -------------------------------------------------- |
+| `upgrade`    | `paru -Syu`               | `sudo pacman -Syu`                                 |
+| `update`     | `paru -Sy`                | `sudo pacman -Sy`                                  |
+| `search`     | `paru -Ss`                | `pacman -Ss`                                       |
+| `install`    | `paru -S`                 | `sudo pacman -S`                                   |
+| `remove`     | `paru -Rns`               | `sudo pacman -Rns`                                 |
+| `info`       | `paru -Si`                | `pacman -Si`, then `pacman -Qi` if not in the repos |
+| `clean`      | `paru -Sc`                | `sudo pacman -Sc`                                  |
+| `autoremove` | `paru -Rns` the orphans   | `sudo pacman -Rns` the orphans                     |
+| `check`      | `paru -Qu`                | `checkupdates` (pacman-contrib), else `pacman -Qu` |
+
+`owns`, `files`, `list` and `aur` always use `pacman`. When `search`, `install` or `info` fail without paru, paku adds that the AUR wasn't used. As root, paku runs `pacman` without `sudo`.
+
+`check` and `maintain` prefer `cachy-update`, then `arch-update`, when installed.
+
+Every command runs directly, as an argument list (never through a shell), and paku exits with its code. Ctrl-C goes to paru or pacman, and paku waits for them to finish.
 
 ## Requirements
 
-- [fish](https://fishshell.com/) shell
-- [`paru`](https://github.com/Morganamilo/paru) (AUR helper)
-- `pacman` (Arch / Arch-derived distro)
-- `flatpak` — optional; `pak upgrade` runs `flatpak upgrade` only if `flatpak` is on your PATH
+- `pacman` (Arch or an Arch-derived distro)
+- optional: [`paru`](https://github.com/Morganamilo/paru) (AUR), `flatpak` (`paku upgrade` also runs `flatpak upgrade`), [`cachy-update`](https://github.com/CachyOS/cachy-update) or `arch-update` (`paku maintain`), `curl` (`paku aur-audit`), `pacman-contrib` (`paku check` without paru)
 
 ## Install
 
-```fish
-git clone git@github.com:nielsonrolim/pak.git
-cd pak
-./install.fish
+From source, with Rust's `cargo`:
+
+```sh
+git clone https://github.com/nielsonrolim/paku.git
+cd paku
+cargo build --release
+sudo install -Dm755 target/release/paku /usr/local/bin/paku
+sudo install -Dm644 paku.1 /usr/local/share/man/man1/paku.1
 ```
 
-This copies `functions/pak.fish` and `completions/pak.fish` into `~/.config/fish/`, creating the directories if needed. The script is idempotent: re-running it skips files that haven't changed and backs up local edits to `*.bak` before overwriting.
+### Shell completions
 
-Remove with `./uninstall.fish`.
+`paku completions bash|zsh|fish` prints the completion script. Package names come from the repos (`install`, `search`), the installed packages (`remove`, `files`) or both (`info`); `owns` completes paths.
 
-If you'd rather track the repo and pick up changes with a `git pull`, symlink instead:
-
-```fish
-ln -s (pwd)/functions/pak.fish    ~/.config/fish/functions/pak.fish
-ln -s (pwd)/completions/pak.fish  ~/.config/fish/completions/pak.fish
+```sh
+paku completions bash | sudo tee /usr/share/bash-completion/completions/paku >/dev/null
+paku completions zsh  | sudo tee /usr/share/zsh/site-functions/_paku >/dev/null
+paku completions fish | sudo tee /usr/share/fish/vendor_completions.d/paku.fish >/dev/null
 ```
 
-Either way, open a new fish shell (or `source ~/.config/fish/functions/pak.fish`) and `pak` is ready.
+### Coming from the fish function pak
+
+paku replaces the fish function `pak`, with the same subcommands and aliases under the new name. Remove the old function and its completions (the pak repo's `./uninstall.fish` does the same):
+
+```sh
+rm -f ~/.config/fish/functions/pak.fish ~/.config/fish/completions/pak.fish
+```
+
+Then open a new fish shell.
 
 ## Usage
 
-Run `pak` with no arguments to print a help summary.
+Run `paku` with no arguments for the help summary (it exits 1, like the fish function did); `paku --help` prints it and exits 0, and `paku --version` prints the version.
 
 ### Upgrade everything
 
-```fish
-pak upgrade
+```sh
+paku upgrade
 ```
 
-Runs `paru -Syu` and, if `flatpak` is on your PATH, follows up with `flatpak upgrade`. On systems without flatpak the second step is silently skipped.
+Runs `paru -Syu` (or `sudo pacman -Syu`) and, if `flatpak` is on your PATH, `flatpak upgrade`. The exit code is the first one that failed.
 
 ### Run a full maintenance pass
 
-```fish
-pak maintain
+```sh
+paku maintain
 ```
 
-Delegates to [`cachy-update`](https://github.com/CachyOS/cachy-update) (falling back to `arch-update`) for a complete maintenance flow: repo + AUR updates plus news, orphan removal, cache cleanup, pacnew handling, and kernel/reboot and service-restart checks. Any extra arguments are passed straight through, e.g. `pak maintain --devel` or `pak maintain --news 10`. If neither tool is installed, it prints how to install `cachy-update` and exits.
+Delegates to [`cachy-update`](https://github.com/CachyOS/cachy-update) (falling back to `arch-update`) for a complete maintenance flow: repo + AUR updates plus news, orphan removal, cache cleanup, pacnew handling, and kernel/reboot and service-restart checks. Any extra arguments are passed straight through, e.g. `paku maintain --devel` or `paku maintain --news 10`. If neither tool is installed, it prints how to install `cachy-update` and exits 1.
 
 ### Check for pending updates
 
-```fish
-pak check
+```sh
+paku check
 ```
 
-Lists available updates without applying them. Uses `cachy-update --list` (or `arch-update --list`) when available, otherwise falls back to `paru -Qu`.
+Lists available updates without applying them: `cachy-update --list` or `arch-update --list` when available, otherwise `paru -Qu` (without paru, `checkupdates`, else `pacman -Qu`).
 
-### Refresh the package database
+### Search, install, inspect and remove
 
-```fish
-pak update
+```sh
+paku search firefox
+paku install neovim ripgrep fd
+paku info neovim
+paku remove neovim
 ```
 
-Runs `paru -Sy` — useful before searching to make sure suggestions reflect the latest repo state. Doesn't upgrade anything.
+`remove` uses `-Rns`, so unused dependencies and saved configs go with the package. Extra flags are passed on, e.g. `paku install --needed base-devel`.
 
-### Search the repos and AUR
+### Files and ownership
 
-```fish
-pak search firefox
+```sh
+paku owns /usr/bin/fish     # pacman -Qo
+paku files fish             # pacman -Ql
 ```
 
-### Install one or more packages
+### Lists
 
-```fish
-pak install neovim ripgrep fd
+```sh
+paku list                   # explicitly installed packages (pacman -Qe)
+paku aur                    # AUR / foreign packages (pacman -Qm)
 ```
-
-Tab completion suggests package names from the official repos.
-
-### Show package info
-
-```fish
-pak info neovim
-```
-
-Tab completion offers both repo and installed packages, so AUR packages you've already installed show up.
-
-### Remove packages (with their unused deps and config)
-
-```fish
-pak remove neovim
-```
-
-Uses `paru -Rns`, so unused dependencies and saved configs are removed alongside the package. Tab completion here is restricted to *installed* packages.
-
-### Find which package owns a file
-
-```fish
-pak owns /usr/bin/fish
-```
-
-Equivalent to `pacman -Qo`. Tab-completes filesystem paths.
-
-### List the files installed by a package
-
-```fish
-pak files fish
-```
-
-Equivalent to `pacman -Ql`. Tab completion is restricted to installed packages.
-
-### List explicitly installed packages
-
-```fish
-pak list
-```
-
-Equivalent to `pacman -Qe` — packages you asked for, as opposed to dependencies pulled in transitively. Useful for auditing your install or capturing it for replication.
-
-### List installed AUR / foreign packages
-
-```fish
-pak aur
-```
-
-Equivalent to `pacman -Qm` — handy for auditing what came from outside the official repos.
 
 ### Audit installed AUR packages against the compromised list
 
-```fish
-pak aur-audit
+```sh
+paku aur-audit
 ```
 
-Fetches the [Arch Linux AUR compromised-package list](https://md.archlinux.org/s/SxbqukK6IA) with `curl` and compares it against your installed AUR/foreign packages (`pacman -Qmq`). Prints a summary and, if any installed package appears on the list, a `WARNING:` block naming them; it exits non-zero in that case, so you can use it in scripts. Requires `curl` and network access — if `curl` is missing it prints how to install it.
+Fetches the [Arch Linux AUR compromised-package list](https://md.archlinux.org/s/SxbqukK6IA) with `curl` and compares it against your installed AUR/foreign packages (`pacman -Qmq`). It prints a summary and, if any installed package is on the list, a `WARNING:` block naming them. Exit codes: 0 when nothing matches (or no AUR package is installed); 1 when a package matches, when the list can't be fetched or when `curl` is missing.
 
-### Clean the package cache
+### Clean the cache and remove orphans
 
-```fish
-pak clean
+```sh
+paku clean
+paku autoremove
 ```
 
-### Remove orphaned packages
-
-```fish
-pak autoremove
-```
-
-Finds unrequired dependencies via `pacman -Qdtq` and removes them with `paru -Rns`. Prints a friendly message and exits cleanly when there's nothing to remove.
+`autoremove` finds unrequired dependencies with `pacman -Qdtq` and removes them with `-Rns`; with none, it says so and exits 0.
 
 ## Subcommand aliases
-
-Most subcommands have shorter aliases:
 
 | Subcommand   | Aliases                      |
 | ------------ | ---------------------------- |
@@ -185,8 +167,12 @@ Most subcommands have shorter aliases:
 | `remove`     | `rm`, `uninstall`            |
 | `list`       | `explicit`                   |
 | `aur`        | `aur-list`                   |
-| `aur-audit`  | `aur-sec`, `aur-security`     |
+| `aur-audit`  | `aur-sec`, `aur-security`    |
 | `autoremove` | `orphans`                    |
+
+## The name
+
+paku is a [pacu](https://en.wikipedia.org/wiki/Pacu), the South American fish with human-like teeth, and a nod to `pac`man.
 
 ## License
 
