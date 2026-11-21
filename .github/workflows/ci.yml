@@ -14,7 +14,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install the toolchain and the shells
-        run: pacman -Syu --noconfirm --needed rust bash zsh fish git groff xz
+        run: pacman -Syu --noconfirm --needed rust bash zsh fish git groff xz diffutils
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Format
         run: cargo fmt --check
