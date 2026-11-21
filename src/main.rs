@@ -31,8 +31,6 @@ mod libc {
 /// in the background of a script, keeps them ignored for its children too).
 static INT_BEFORE: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
 static QUIT_BEFORE: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
-/// The signal (SIGINT or SIGQUIT) that killed the last child, or 0.
-static KILLED_BY: AtomicI32 = AtomicI32::new(0);
 
 /// The SIGINT or SIGQUIT the terminal sent paku (the last one), or 0.
 static GOT_SIGNAL: AtomicI32 = AtomicI32::new(0);
@@ -89,12 +87,8 @@ impl System {
     }
 }
 
-/// The code a shell would give: the exit code, or 128 + the signal that killed the child. A child killed by
-/// SIGINT or SIGQUIT is remembered, for paku to end the same way.
+/// The code a shell would give: the exit code, or 128 + the signal that killed the child.
 fn exit_code(status: std::process::ExitStatus) -> i32 {
-    if let Some(sig @ (libc::SIGINT | libc::SIGQUIT)) = status.signal() {
-        KILLED_BY.store(sig, Ordering::Relaxed);
-    }
     status.code().or_else(|| status.signal().map(|s| 128 + s)).unwrap_or(1)
 }
 
@@ -147,13 +141,13 @@ fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let code = paku::run(&args, &mut System);
     let _ = std::io::stdout().flush();
-    // Stopped by Ctrl-C (paku got it, or the child died of it): paku dies of SIGINT too, so a shell loop
-    // around it stops. bash only stops a loop when the command itself was killed by SIGINT, not on an exit
-    // code, and paru or sudo exit with one. Not for SIGQUIT: its default action dumps core, and paku would
-    // show up as a crash next to the child; it just exits with the code
+    // Stopped by Ctrl-C (paku got it, or the code is 130: a child killed by SIGINT, or sudo when pacman, in
+    // sudo's own pty, died of a Ctrl-C paku never saw): paku dies of SIGINT too, so a shell loop around it
+    // stops. bash only stops a loop when the command itself was killed by SIGINT, not on an exit code. Not for
+    // SIGQUIT: its default action dumps core, and paku would show up as a crash next to the child; it just
+    // exits with the code. paru exits 1 on a Ctrl-C under sudo's pty, which no one can tell from a failure
     let got_int = GOT_SIGNAL.load(Ordering::Relaxed) == libc::SIGINT;
-    let child_int = code == 130 && KILLED_BY.load(Ordering::Relaxed) == libc::SIGINT;
-    if (got_int || child_int) && INT_BEFORE.load(Ordering::Relaxed) == libc::SIG_DFL {
+    if (got_int || code == 130) && INT_BEFORE.load(Ordering::Relaxed) == libc::SIG_DFL {
         // SAFETY: back to the default action, then the signal to paku itself
         unsafe {
             libc::signal(libc::SIGINT, libc::SIG_DFL);

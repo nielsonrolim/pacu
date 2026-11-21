@@ -96,7 +96,7 @@ Run `paku` with no arguments for the help summary (it exits 1, like the fish fun
 paku upgrade
 ```
 
-Runs `paru -Syu` (or `sudo pacman -Syu`) and, if `flatpak` is on your PATH, `flatpak upgrade`. The exit code is the first one that failed.
+Runs `paru -Syu` (or `sudo pacman -Syu`) and then, if `flatpak` is on your PATH and the system upgrade went through, `flatpak upgrade`. A failed or interrupted system upgrade stops there, with its exit code.
 
 ### Run a full maintenance pass
 
