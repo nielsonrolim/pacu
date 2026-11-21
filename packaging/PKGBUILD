@@ -11,7 +11,7 @@ license=(Apache-2.0)
 # 0.1.0 was published as paku: pacman -Syu replaces it with pacu
 replaces=(paku)
 conflicts=(paku)
-provides=(paku)
+provides=("paku=$pkgver")
 # libgcc and glibc: what the binary links (namcap); pacman: what it runs
 depends=(glibc libgcc pacman)
 makedepends=(cargo)
