@@ -1,15 +1,15 @@
-.TH PAKU 1 2026-11-21 "paku 0.1.0" "User Commands"
+.TH PACU 1 2026-11-21 "pacu 0.1.1" "User Commands"
 .SH NAME
-paku \- a small package-management wrapper around paru and pacman
+pacu \- a small package-management wrapper around paru and pacman
 .SH SYNOPSIS
-.B paku
+.B pacu
 .I subcommand
 .RI [ args ...]
 .br
-.B paku
+.B pacu
 .RB [ \-\-help | \-\-version ]
 .SH DESCRIPTION
-.B paku
+.B pacu
 gives everyday package management on Arch Linux and its derivatives a smaller set of subcommands.
 It uses
 .BR paru (8)
@@ -19,7 +19,7 @@ with
 .BR sudo (8)
 for the operations that change the system (not when run as root), and the official repositories only.
 Commands run directly, never through a shell, and
-.B paku
+.B pacu
 exits with their exit code.
 .SH SUBCOMMANDS
 .TP

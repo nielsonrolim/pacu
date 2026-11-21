@@ -1,22 +1,26 @@
 # Maintainer: Nielson Rolim <nielsonrolim@users.noreply.github.com>
 # The OBS package (home:nielsonrolim, repository Arch). packaging/make-source.sh makes the source tarball
 # of a commit and this file with its sha256; to build by hand, run it and then makepkg in its output folder.
-pkgname=paku
-pkgver=0.1.0
+pkgname=pacu
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="A small package-management wrapper around paru/pacman for Arch and derivatives"
 arch=(x86_64 aarch64)
-url="https://github.com/nielsonrolim/paku"
+url="https://github.com/nielsonrolim/pacu"
 license=(Apache-2.0)
+# 0.1.0 was published as paku: pacman -Syu replaces it with pacu
+replaces=(paku)
+conflicts=(paku)
+provides=("paku=$pkgver")
 # libgcc and glibc: what the binary links (namcap); pacman: what it runs
 depends=(glibc libgcc pacman)
 makedepends=(cargo)
 optdepends=('paru: AUR packages (search, install, upgrade)'
             'sudo: install, remove and upgrade without paru'
-            'flatpak: paku upgrade also upgrades the Flatpaks'
-            'cachy-update: paku maintain and paku check'
-            'curl: paku aur-audit'
-            'pacman-contrib: paku check without paru (checkupdates)')
+            'flatpak: pacu upgrade also upgrades the Flatpaks'
+            'cachy-update: pacu maintain and pacu check'
+            'curl: pacu aur-audit'
+            'pacman-contrib: pacu check without paru (checkupdates)')
 source=("$pkgname-$pkgver.tar.xz")
 sha256sums=('SKIP')
 
@@ -39,13 +43,13 @@ check() {
 
 package() {
   cd "$pkgname-$pkgver"
-  local paku=target/release/paku
-  install -Dm755 "$paku" "$pkgdir/usr/bin/paku"
-  install -Dm644 paku.1 "$pkgdir/usr/share/man/man1/paku.1"
+  local pacu=target/release/pacu
+  install -Dm755 "$pacu" "$pkgdir/usr/bin/pacu"
+  install -Dm644 pacu.1 "$pkgdir/usr/share/man/man1/pacu.1"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -d "$pkgdir/usr/share/bash-completion/completions" "$pkgdir/usr/share/zsh/site-functions" \
     "$pkgdir/usr/share/fish/vendor_completions.d"
-  "$paku" completions bash > "$pkgdir/usr/share/bash-completion/completions/paku"
-  "$paku" completions zsh > "$pkgdir/usr/share/zsh/site-functions/_paku"
-  "$paku" completions fish > "$pkgdir/usr/share/fish/vendor_completions.d/paku.fish"
+  "$pacu" completions bash > "$pkgdir/usr/share/bash-completion/completions/pacu"
+  "$pacu" completions zsh > "$pkgdir/usr/share/zsh/site-functions/_pacu"
+  "$pacu" completions fish > "$pkgdir/usr/share/fish/vendor_completions.d/pacu.fish"
 }

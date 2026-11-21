@@ -1,10 +1,10 @@
 [package]
-name = "paku"
-version = "0.1.0"
+name = "pacu"
+version = "0.1.1"
 edition = "2021"
 description = "A small package-management wrapper around paru/pacman for Arch and derivatives"
 license = "Apache-2.0"
-repository = "https://github.com/nielsonrolim/paku"
+repository = "https://github.com/nielsonrolim/pacu"
 readme = "README.md"
 publish = false
 

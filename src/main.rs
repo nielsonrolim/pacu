@@ -1,9 +1,9 @@
-//! paku: a smaller, friendlier surface over paru and pacman. Every command runs as an argument vector,
+//! pacu: a smaller, friendlier surface over paru and pacman. Every command runs as an argument vector,
 //! never through a shell.
 mod audit;
 mod commands;
 mod completions;
-mod paku;
+mod pacu;
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -27,12 +27,12 @@ mod libc {
     }
 }
 
-/// What SIGINT and SIGQUIT did when paku started: the children get it back (a paku started with them ignored,
+/// What SIGINT and SIGQUIT did when pacu started: the children get it back (a pacu started with them ignored,
 /// in the background of a script, keeps them ignored for its children too).
 static INT_BEFORE: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
 static QUIT_BEFORE: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
 
-/// The SIGINT or SIGQUIT the terminal sent paku (the last one), or 0.
+/// The SIGINT or SIGQUIT the terminal sent pacu (the last one), or 0.
 static GOT_SIGNAL: AtomicI32 = AtomicI32::new(0);
 
 extern "C" fn on_signal(sig: i32) {
@@ -40,9 +40,9 @@ extern "C" fn on_signal(sig: i32) {
     GOT_SIGNAL.store(sig, Ordering::Relaxed);
 }
 
-/// Catches a signal (only noting it, so paku waits for its child) and gives what it did before (SIG_DFL if
+/// Catches a signal (only noting it, so pacu waits for its child) and gives what it did before (SIG_DFL if
 /// that can't be read). One that was ignored stays ignored. A caught signal goes back to the default at
-/// exec, so the child gets it as before paku
+/// exec, so the child gets it as before pacu
 fn catch(sig: i32) -> usize {
     // SAFETY: called from main before any thread starts; the handler only stores an atomic
     unsafe {
@@ -64,7 +64,7 @@ impl System {
     fn command(argv: &[OsString]) -> Command {
         let mut command = Command::new(&argv[0]);
         command.args(&argv[1..]);
-        // paku notes Ctrl-C and Ctrl-\ while a child runs (see main); the child gets back what they did before
+        // pacu notes Ctrl-C and Ctrl-\ while a child runs (see main); the child gets back what they did before
         let (int, quit) = (INT_BEFORE.load(Ordering::Relaxed), QUIT_BEFORE.load(Ordering::Relaxed));
         // SAFETY: signal() is async-signal-safe, the only call made between fork and exec
         unsafe {
@@ -78,7 +78,7 @@ impl System {
     }
 
     fn report_spawn_error(argv: &[OsString], e: &std::io::Error) -> i32 {
-        eprintln!("paku: couldn't run {}: {e}", argv[0].to_string_lossy());
+        eprintln!("pacu: couldn't run {}: {e}", argv[0].to_string_lossy());
         if e.kind() == std::io::ErrorKind::NotFound {
             127
         } else {
@@ -92,7 +92,7 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
     status.code().or_else(|| status.signal().map(|s| 128 + s)).unwrap_or(1)
 }
 
-impl paku::Sys for System {
+impl pacu::Sys for System {
     fn run(&mut self, argv: &[OsString]) -> i32 {
         match Self::command(argv).status() {
             Ok(status) => exit_code(status),
@@ -120,7 +120,7 @@ impl paku::Sys for System {
     }
 
     fn out(&mut self, text: &str) {
-        // A closed pipe (`paku __complete repo | head`) isn't an error worth a panic
+        // A closed pipe (`pacu __complete repo | head`) isn't an error worth a panic
         let _ = std::io::stdout().write_all(text.as_bytes());
     }
 
@@ -135,20 +135,20 @@ fn is_executable(path: &Path) -> bool {
 
 fn main() {
     // The terminal sends Ctrl-C to the whole foreground group: paru or pacman decide what to do with it,
-    // and paku waits for them instead of leaving them running behind the prompt, noting that it came
+    // and pacu waits for them instead of leaving them running behind the prompt, noting that it came
     INT_BEFORE.store(catch(libc::SIGINT), Ordering::Relaxed);
     QUIT_BEFORE.store(catch(libc::SIGQUIT), Ordering::Relaxed);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    let code = paku::run(&args, &mut System);
+    let code = pacu::run(&args, &mut System);
     let _ = std::io::stdout().flush();
-    // Stopped by Ctrl-C (paku got it, or the code is 130: a child killed by SIGINT, or sudo when pacman, in
-    // sudo's own pty, died of a Ctrl-C paku never saw): paku dies of SIGINT too, so a shell loop around it
+    // Stopped by Ctrl-C (pacu got it, or the code is 130: a child killed by SIGINT, or sudo when pacman, in
+    // sudo's own pty, died of a Ctrl-C pacu never saw): pacu dies of SIGINT too, so a shell loop around it
     // stops. bash only stops a loop when the command itself was killed by SIGINT, not on an exit code. Not for
-    // SIGQUIT: its default action dumps core, and paku would show up as a crash next to the child; it just
+    // SIGQUIT: its default action dumps core, and pacu would show up as a crash next to the child; it just
     // exits with the code. paru exits 1 on a Ctrl-C under sudo's pty, which no one can tell from a failure
     let got_int = GOT_SIGNAL.load(Ordering::Relaxed) == libc::SIGINT;
     if (got_int || code == 130) && INT_BEFORE.load(Ordering::Relaxed) == libc::SIG_DFL {
-        // SAFETY: back to the default action, then the signal to paku itself
+        // SAFETY: back to the default action, then the signal to pacu itself
         unsafe {
             libc::signal(libc::SIGINT, libc::SIG_DFL);
             libc::kill(libc::getpid(), libc::SIGINT);

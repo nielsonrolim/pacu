@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The OBS source of the current commit (HEAD, not the working tree: commit first) in OUT:
-# - paku-<version>.tar.xz: git archive, plus the crates in vendor/ and the .cargo/config.toml that uses
+# - pacu-<version>.tar.xz: git archive, plus the crates in vendor/ and the .cargo/config.toml that uses
 #   them when the crate has dependencies (the OBS builds without network). Reproducible: the same commit
 #   gives the same bytes (sorted names, the commit's date, no owners);
 # - PKGBUILD: packaging/PKGBUILD with the tarball's sha256.
@@ -14,7 +14,7 @@ out=$(mkdir -p "${1:?usage: make-source.sh OUT}" && cd "$1" && pwd)
 version=$(git -C "$root" show HEAD:Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n1)
 pkgver=$(git -C "$root" show HEAD:packaging/PKGBUILD | sed -n 's/^pkgver=//p')
 [[ -n $version && $version == "$pkgver" ]] || { echo "make-source: Cargo.toml has $version, the PKGBUILD $pkgver" >&2; exit 1; }
-name=paku-$version
+name=pacu-$version
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 git -C "$root" archive --format=tar --prefix="$name/" HEAD | tar -x -C "$work"
