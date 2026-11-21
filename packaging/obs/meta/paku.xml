@@ -1,0 +1,9 @@
+<package name="paku" project="home:nielsonrolim">
+  <title>paku</title>
+  <description>A small package-management wrapper around paru/pacman for Arch and derivatives. https://github.com/nielsonrolim/paku</description>
+  <!-- Arch only: every repository of the project is off except Arch, also ones added later -->
+  <build>
+    <disable/>
+    <enable repository="Arch"/>
+  </build>
+</package>

@@ -1,0 +1,51 @@
+# Maintainer: Nielson Rolim <nielsonrolim@users.noreply.github.com>
+# The OBS package (home:nielsonrolim, repository Arch). packaging/make-source.sh makes the source tarball
+# of a commit and this file with its sha256; to build by hand, run it and then makepkg in its output folder.
+pkgname=paku
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A small package-management wrapper around paru/pacman for Arch and derivatives"
+arch=(x86_64 aarch64)
+url="https://github.com/nielsonrolim/paku"
+license=(Apache-2.0)
+# libgcc and glibc: what the binary links (namcap); pacman: what it runs
+depends=(glibc libgcc pacman)
+makedepends=(cargo)
+optdepends=('paru: AUR packages (search, install, upgrade)'
+            'sudo: install, remove and upgrade without paru'
+            'flatpak: paku upgrade also upgrades the Flatpaks'
+            'cachy-update: paku maintain and paku check'
+            'curl: paku aur-audit'
+            'pacman-contrib: paku check without paru (checkupdates)')
+source=("$pkgname-$pkgver.tar.xz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  # The OBS builds without network: the tarball brings the crates in vendor/ when there are any
+  [[ -d vendor ]] && return
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  cargo test --frozen --release
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  local paku=target/release/paku
+  install -Dm755 "$paku" "$pkgdir/usr/bin/paku"
+  install -Dm644 paku.1 "$pkgdir/usr/share/man/man1/paku.1"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -d "$pkgdir/usr/share/bash-completion/completions" "$pkgdir/usr/share/zsh/site-functions" \
+    "$pkgdir/usr/share/fish/vendor_completions.d"
+  "$paku" completions bash > "$pkgdir/usr/share/bash-completion/completions/paku"
+  "$paku" completions zsh > "$pkgdir/usr/share/zsh/site-functions/_paku"
+  "$paku" completions fish > "$pkgdir/usr/share/fish/vendor_completions.d/paku.fish"
+}
