@@ -51,6 +51,10 @@ pacu uses `paru` when it's on your PATH, so the AUR is included. Without it, pac
 
 Every command runs directly, as an argument list (never through a shell), and pacu exits with its code. Ctrl-C goes to paru or pacman, and pacu waits for them to finish.
 
+### Known conflict: BlackArch's pacu
+
+[BlackArch](https://blackarch.org) has an unrelated package called `pacu` (Rhino Security Labs' AWS exploitation framework), and pip installs the same tool as a `pacu` command. Both can't be installed at once: they'd both own `/usr/bin/pacu`. With both repositories in `/etc/pacman.conf`, pacman takes a package from the first repository that has its name, whatever the versions: keep `[home_nielsonrolim_Arch]` above `[blackarch]` to get this pacu (or below it for theirs). A `pacu` from pip in `~/.local/bin` comes first in the PATH and hides this one.
+
 ## Requirements
 
 - `pacman` (Arch or an Arch-derived distro)
