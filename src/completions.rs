@@ -25,10 +25,10 @@ fn flags(sep: &str) -> String {
     MAINTAIN_FLAGS.iter().map(|(f, _)| *f).collect::<Vec<_>>().join(sep)
 }
 
-/// A single-quoted word for sh, bash, zsh and fish: the text has no quote of its own (checked by a test),
-/// so no escaping is needed.
+/// A single-quoted word for sh, bash, zsh and fish: the table's texts have no quote nor backslash (checked by a
+/// test), so no escaping is needed (zsh's `\:` is literal inside single quotes there).
 fn quoted(text: &str) -> String {
-    debug_assert!(!text.contains('\'') && !text.contains('\\'));
+    debug_assert!(!text.contains('\''));
     format!("'{text}'")
 }
 
@@ -39,14 +39,16 @@ fn bash() -> String {
     s.push_str(&format!("        mapfile -t COMPREPLY < <(compgen -W {} -- \"$cur\")\n", quoted(&all_words(" "))));
     s.push_str("        return\n    fi\n");
     s.push_str("    case ${COMP_WORDS[1]} in\n");
-    let packages = |source: &str| format!("mapfile -t COMPREPLY < <(compgen -W \"$({source})\" -- \"$cur\")");
+    // The package names come from the sync databases, which a third-party repo or mirror writes: they never go
+    // through compgen -W, which expands its word list ($(...) included). paku filters them by the prefix
+    let packages = |sources: &[&str]| {
+        let lists = sources.iter().map(|w| format!("paku __complete {w} \"$cur\" 2>/dev/null")).collect::<Vec<_>>();
+        format!("mapfile -t COMPREPLY < <({})", lists.join("; "))
+    };
     for (what, action) in [
-        (Complete::Repo, packages("paku __complete repo 2>/dev/null")),
-        (Complete::Installed, packages("paku __complete installed 2>/dev/null")),
-        (
-            Complete::RepoAndInstalled,
-            packages("paku __complete repo 2>/dev/null; paku __complete installed 2>/dev/null"),
-        ),
+        (Complete::Repo, packages(&["repo"])),
+        (Complete::Installed, packages(&["installed"])),
+        (Complete::RepoAndInstalled, packages(&["repo", "installed"])),
         (
             Complete::Paths,
             "compopt -o filenames 2>/dev/null; mapfile -t COMPREPLY < <(compgen -f -- \"$cur\")".to_string(),
@@ -158,6 +160,43 @@ mod tests {
         for (flag, description) in MAINTAIN_FLAGS {
             assert!(!flag.contains('\'') && !description.contains('\''));
         }
+    }
+
+    #[test]
+    fn bash_never_expands_the_package_names() {
+        let text = bash();
+        assert!(!text.contains("compgen -W \"$("), "{text}");
+        assert!(text.contains("mapfile -t COMPREPLY < <(paku __complete repo \"$cur\" 2>/dev/null)"));
+    }
+
+    /// The bash completion with a package name that would run a command if anything expanded it.
+    #[test]
+    fn a_hostile_package_name_stays_text_in_bash() {
+        let dir = std::env::temp_dir().join(format!("paku-hostile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pwned = dir.join("pwned");
+        // A paku that answers __complete with the hostile name
+        let fake = dir.join("paku");
+        std::fs::write(&fake, format!("#!/bin/sh\nprintf '%s\\n' htop '$(touch {})'\n", pwned.display())).unwrap();
+        std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let script = dir.join("c.bash");
+        std::fs::write(&script, bash()).unwrap();
+        let test = format!(
+            "PATH={}:$PATH; source {}; COMP_WORDS=(paku install ''); COMP_CWORD=2; _paku; printf '%s\\n' \"${{COMPREPLY[@]}}\"",
+            dir.display(),
+            script.display()
+        );
+        match Command::new("bash").arg("-c").arg(&test).output() {
+            Ok(out) => {
+                assert!(!pwned.exists(), "the name ran a command");
+                let lines = String::from_utf8_lossy(&out.stdout);
+                assert!(lines.lines().any(|l| l.starts_with("$(touch")), "{lines}");
+            }
+            Err(_) if std::env::var_os("PAKU_REQUIRE_SHELLS").is_none() => eprintln!("bash not installed, skipped"),
+            Err(e) => panic!("bash: {e}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

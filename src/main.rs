@@ -11,15 +11,37 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
 mod libc {
     pub const SIGINT: i32 = 2;
     pub const SIGQUIT: i32 = 3;
     pub const SIG_DFL: usize = 0;
     pub const SIG_IGN: usize = 1;
+    pub const SIG_ERR: usize = usize::MAX;
     extern "C" {
         pub fn signal(signum: i32, handler: usize) -> usize;
         pub fn geteuid() -> u32;
+        pub fn getpid() -> i32;
+        pub fn kill(pid: i32, sig: i32) -> i32;
+    }
+}
+
+/// What SIGINT and SIGQUIT did when paku started: the children get it back (a paku started with them ignored,
+/// in the background of a script, keeps them ignored for its children too).
+static INT_BEFORE: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
+static QUIT_BEFORE: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
+/// The signal (SIGINT or SIGQUIT) that killed the last child, or 0.
+static KILLED_BY: AtomicI32 = AtomicI32::new(0);
+
+/// Ignores a signal and gives what it did before (SIG_DFL if that can't be read).
+fn ignore(sig: i32) -> usize {
+    // SAFETY: called from main before any thread starts
+    let before = unsafe { libc::signal(sig, libc::SIG_IGN) };
+    if before == libc::SIG_ERR {
+        libc::SIG_DFL
+    } else {
+        before
     }
 }
 
@@ -30,12 +52,13 @@ impl System {
     fn command(argv: &[OsString]) -> Command {
         let mut command = Command::new(&argv[0]);
         command.args(&argv[1..]);
-        // paku ignores Ctrl-C and Ctrl-\ while a child runs (see main); the child gets them back
+        // paku ignores Ctrl-C and Ctrl-\ while a child runs (see main); the child gets back what they did before
+        let (int, quit) = (INT_BEFORE.load(Ordering::Relaxed), QUIT_BEFORE.load(Ordering::Relaxed));
         // SAFETY: signal() is async-signal-safe, the only call made between fork and exec
         unsafe {
-            command.pre_exec(|| {
-                libc::signal(libc::SIGINT, libc::SIG_DFL);
-                libc::signal(libc::SIGQUIT, libc::SIG_DFL);
+            command.pre_exec(move || {
+                libc::signal(libc::SIGINT, int);
+                libc::signal(libc::SIGQUIT, quit);
                 Ok(())
             });
         }
@@ -52,8 +75,12 @@ impl System {
     }
 }
 
-/// The code a shell would give: the exit code, or 128 + the signal that killed the child.
+/// The code a shell would give: the exit code, or 128 + the signal that killed the child. A child killed by
+/// SIGINT or SIGQUIT is remembered, for paku to end the same way.
 fn exit_code(status: std::process::ExitStatus) -> i32 {
+    if let Some(sig @ (libc::SIGINT | libc::SIGQUIT)) = status.signal() {
+        KILLED_BY.store(sig, Ordering::Relaxed);
+    }
     status.code().or_else(|| status.signal().map(|s| 128 + s)).unwrap_or(1)
 }
 
@@ -97,13 +124,22 @@ fn is_executable(path: &Path) -> bool {
 fn main() {
     // The terminal sends Ctrl-C to the whole foreground group: paru or pacman decide what to do with it,
     // and paku waits for them instead of leaving them running behind the prompt
-    // SAFETY: setting a signal to SIG_IGN before any thread starts
-    unsafe {
-        libc::signal(libc::SIGINT, libc::SIG_IGN);
-        libc::signal(libc::SIGQUIT, libc::SIG_IGN);
-    }
+    INT_BEFORE.store(ignore(libc::SIGINT), Ordering::Relaxed);
+    QUIT_BEFORE.store(ignore(libc::SIGQUIT), Ordering::Relaxed);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let code = paku::run(&args, &mut System);
     let _ = std::io::stdout().flush();
+    // A child killed by Ctrl-C: paku dies of the same signal, so a shell loop around it stops too (bash
+    // only stops a loop when the command itself was killed by SIGINT, not on exit code 130)
+    let sig = KILLED_BY.load(Ordering::Relaxed);
+    let before =
+        if sig == libc::SIGINT { INT_BEFORE.load(Ordering::Relaxed) } else { QUIT_BEFORE.load(Ordering::Relaxed) };
+    if paku::INTERRUPTED.contains(&code) && sig != 0 && before == libc::SIG_DFL {
+        // SAFETY: back to the default action, then the signal to paku itself
+        unsafe {
+            libc::signal(sig, libc::SIG_DFL);
+            libc::kill(libc::getpid(), sig);
+        }
+    }
     std::process::exit(code);
 }

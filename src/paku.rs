@@ -9,6 +9,9 @@ use crate::completions;
 /// Where the "Arch Linux AUR Compromised" list is published (HedgeDoc's raw markdown download).
 pub const AUR_AUDIT_URL: &str = "https://md.archlinux.org/s/SxbqukK6IA/download";
 
+/// The codes of a child killed by SIGINT or SIGQUIT (128 + the signal).
+pub const INTERRUPTED: [i32; 2] = [130, 131];
+
 /// The system, as paku sees it.
 pub trait Sys {
     /// Runs a command on the terminal and gives its exit code.
@@ -119,7 +122,8 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
     match command.kind {
         Kind::Upgrade => {
             let mut codes = vec![sys.run(&backend.writes("-Syu", &[]))];
-            if sys.has("flatpak") {
+            // Interrupted (killed by Ctrl-C or Ctrl-\): stop there
+            if sys.has("flatpak") && !INTERRUPTED.contains(&codes[0]) {
                 codes.push(sys.run(&argv(["flatpak", "upgrade"])));
             }
             first_failure(&codes)
@@ -200,16 +204,24 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
     }
 }
 
-/// `paku __complete repo|installed`: the package names the completions offer.
+/// `paku __complete repo|installed [PREFIX]`: the package names the completions offer, only the ones
+/// starting with PREFIX when given (bash then takes them as they are, with no expansion).
 fn complete(args: &[OsString], sys: &mut dyn Sys) -> i32 {
     let op = match args.first().map(|a| a.to_string_lossy()) {
         Some(ref w) if w == "repo" => "-Ssq",
         Some(ref w) if w == "installed" => "-Qq",
         _ => return 1,
     };
+    let prefix = args.get(1).map(|a| a.to_string_lossy().into_owned()).unwrap_or_default();
     match sys.capture(&argv(["pacman", op])) {
         Some((code, data)) => {
-            sys.out(&String::from_utf8_lossy(&data));
+            let text = String::from_utf8_lossy(&data);
+            let mut names = String::new();
+            for name in text.lines().filter(|l| l.starts_with(&prefix)) {
+                names.push_str(name);
+                names.push('\n');
+            }
+            sys.out(&names);
             code
         }
         None => 1,
@@ -223,7 +235,17 @@ fn aur_audit(sys: &mut dyn Sys) -> i32 {
         return 1;
     }
     let list = sys
-        .capture(&argv(["curl", "-fsSL", "--max-time", "20", AUR_AUDIT_URL]))
+        .capture(&argv([
+            "curl",
+            "-fsSL",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
+            "--max-time",
+            "20",
+            AUR_AUDIT_URL,
+        ]))
         .filter(|(code, _)| *code == 0)
         .map(|(_, data)| audit::parse_list(&String::from_utf8_lossy(&data)))
         .unwrap_or_default();
@@ -434,6 +456,10 @@ mod tests {
         assert_eq!(paku(&mut f, &["upgrade"]), 1);
         assert_eq!(f.ran, ["paru -Syu", "flatpak upgrade"]);
         let mut f = with(&["paru", "flatpak"]);
+        f.codes.insert("paru -Syu".into(), 130);
+        assert_eq!(paku(&mut f, &["upgrade"]), 130);
+        assert_eq!(f.ran, ["paru -Syu"]);
+        let mut f = with(&["paru", "flatpak"]);
         f.codes.insert("flatpak upgrade".into(), 3);
         assert_eq!(paku(&mut f, &["upgrade"]), 3);
     }
@@ -468,7 +494,8 @@ mod tests {
         assert_eq!(f.ran, ["pacman -Qdtq"]);
     }
 
-    const CURL: &str = "curl -fsSL --max-time 20 https://md.archlinux.org/s/SxbqukK6IA/download";
+    const CURL: &str =
+        "curl -fsSL --proto =https --proto-redir =https --max-time 20 https://md.archlinux.org/s/SxbqukK6IA/download";
 
     #[test]
     fn aur_audit_codes() {

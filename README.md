@@ -45,6 +45,8 @@ paku uses `paru` when it's on your PATH, so the AUR is included. Without it, pak
 
 `check` and `maintain` prefer `cachy-update`, then `arch-update`, when installed.
 
+`paku update` only refreshes the package databases (`-Sy`), as the fish function did. Installing a package right after it, without upgrading, is a partial upgrade, which Arch doesn't support: prefer `paku upgrade`, or `paku check` to see what's pending.
+
 Every command runs directly, as an argument list (never through a shell), and paku exits with its code. Ctrl-C goes to paru or pacman, and paku waits for them to finish.
 
 ## Requirements
