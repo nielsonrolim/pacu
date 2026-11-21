@@ -86,11 +86,6 @@ fn note_no_aur(sys: &mut dyn Sys, backend: &Backend, code: i32) {
     }
 }
 
-/// The first failure of a sequence, or the last code.
-fn first_failure(codes: &[i32]) -> i32 {
-    codes.iter().copied().find(|&c| c != 0).unwrap_or(0)
-}
-
 /// Lines of a command's output, without the empty ones.
 fn lines(data: &[u8]) -> Vec<String> {
     String::from_utf8_lossy(data).lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()
@@ -129,12 +124,14 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
     let backend = Backend::of(sys);
     match command.kind {
         Kind::Upgrade => {
-            let mut codes = vec![sys.run(&backend.writes("-Syu", &[]))];
-            // Stopped by Ctrl-C or Ctrl-\: no flatpak after it
-            if sys.has("flatpak") && !stopped(sys, codes[0]) {
-                codes.push(sys.run(&argv(["flatpak", "upgrade"])));
+            // flatpak only after the system upgrade went through. A failure includes a Ctrl-C, which paku
+            // often can't see: sudo (use_pty, the default since 1.9.14) passes it to pacman in its own pty, and
+            // paru then exits 1
+            let code = sys.run(&backend.writes("-Syu", &[]));
+            if code != 0 || !sys.has("flatpak") {
+                return code;
             }
-            first_failure(&codes)
+            sys.run(&argv(["flatpak", "upgrade"]))
         }
         Kind::Maintain => {
             for tool in ["cachy-update", "arch-update"] {
@@ -477,15 +474,15 @@ mod tests {
     }
 
     #[test]
-    fn upgrade_also_upgrades_flatpak_and_keeps_the_first_failure() {
+    fn upgrade_also_upgrades_flatpak_only_after_the_system() {
         let mut f = with(&["paru", "flatpak"]);
         assert_eq!(paku(&mut f, &["upgrade"]), 0);
         assert_eq!(f.ran, ["paru -Syu", "flatpak upgrade"]);
+        // paru failed, or exited 1 on a Ctrl-C paku didn't get (sudo's pty): no flatpak
         let mut f = with(&["paru", "flatpak"]);
         f.codes.insert("paru -Syu".into(), 1);
-        f.codes.insert("flatpak upgrade".into(), 0);
         assert_eq!(paku(&mut f, &["upgrade"]), 1);
-        assert_eq!(f.ran, ["paru -Syu", "flatpak upgrade"]);
+        assert_eq!(f.ran, ["paru -Syu"]);
         let mut f = with(&["paru", "flatpak"]);
         f.codes.insert("paru -Syu".into(), 130);
         assert_eq!(paku(&mut f, &["upgrade"]), 130);
