@@ -3,6 +3,8 @@
 # tag v<version>. A version already on the OBS with the same content is skipped; the same version with a
 # different content, or a lower one, is refused (pacman wouldn't move to it). osc uses the configured
 # account (osc whois), with the password in the keyring: this script never asks for it.
+# OUT must be what make-source.sh makes from HEAD now: push.sh makes it again and compares, so a folder made
+# before the last commit never goes.
 # usage: packaging/obs/push.sh OUT
 #        OBS_PROJECT=home:other packaging/obs/push.sh OUT   (default: home:nielsonrolim)
 set -euo pipefail
@@ -18,6 +20,17 @@ tag=$(git -C "$root" describe --exact-match --tags HEAD 2>/dev/null || true)
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+"$root/packaging/make-source.sh" "$work/fresh" >/dev/null
+if ! cmp -s "$work/fresh/$tarball" "$src/$tarball" || ! cmp -s "$work/fresh/PKGBUILD" "$src/PKGBUILD"; then
+  echo "push: $src isn't the source of HEAD (v$version): run packaging/make-source.sh again" >&2
+  exit 1
+fi
+# pacman's order when vercmp is there (a 0.2.0rc1 comes before 0.2.0); sort -V otherwise
+newer() { # newer OLD NEW: NEW comes after OLD
+  if command -v vercmp >/dev/null; then (($(vercmp "$2" "$1") > 0)); else
+    [[ $(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1) == "$2" && $1 != "$2" ]]
+  fi
+}
 cd "$work"
 osc checkout --output-dir paku "$project" paku >/dev/null
 cd paku
@@ -32,7 +45,7 @@ if [[ -f PKGBUILD ]]; then
     echo "push: $project/paku: same version ($new), different content: raise the pkgrel or the version" >&2
     exit 1
   fi
-  if [[ $(printf '%s\n%s\n' "$old" "$new" | sort -V | tail -n1) != "$new" ]]; then
+  if ! newer "$old" "$new"; then
     echo "push: $project/paku: $new is below $old, already on the OBS" >&2
     exit 1
   fi
