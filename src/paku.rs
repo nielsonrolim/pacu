@@ -22,6 +22,9 @@ pub trait Sys {
     fn has(&self, program: &str) -> bool;
     /// Whether paku runs as root (then pacman needs no sudo).
     fn is_root(&self) -> bool;
+    /// Whether the terminal sent paku a Ctrl-C or Ctrl-\ (paru, unlike pacman, exits 1 on it, so the
+    /// child's code doesn't tell).
+    fn interrupted(&self) -> bool;
     fn out(&mut self, text: &str);
     fn err(&mut self, text: &str);
 }
@@ -71,9 +74,14 @@ impl Backend {
     }
 }
 
-/// Without paru, a search, install or info that found nothing may be an AUR package.
+/// Whether the last command was stopped by Ctrl-C or Ctrl-\: by its code, or by what paku got.
+fn stopped(sys: &dyn Sys, code: i32) -> bool {
+    INTERRUPTED.contains(&code) || sys.interrupted()
+}
+
+/// Without paru, a search, install or info that found nothing may be an AUR package (not one stopped).
 fn note_no_aur(sys: &mut dyn Sys, backend: &Backend, code: i32) {
-    if !backend.paru && code != 0 {
+    if !backend.paru && code != 0 && !stopped(sys, code) {
         sys.err("paku: paru isn't installed, so only the official repos were used (no AUR)");
     }
 }
@@ -122,8 +130,8 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
     match command.kind {
         Kind::Upgrade => {
             let mut codes = vec![sys.run(&backend.writes("-Syu", &[]))];
-            // Interrupted (killed by Ctrl-C or Ctrl-\): stop there
-            if sys.has("flatpak") && !INTERRUPTED.contains(&codes[0]) {
+            // Stopped by Ctrl-C or Ctrl-\: no flatpak after it
+            if sys.has("flatpak") && !stopped(sys, codes[0]) {
                 codes.push(sys.run(&argv(["flatpak", "upgrade"])));
             }
             first_failure(&codes)
@@ -166,7 +174,7 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
         Kind::Remove => sys.run(&backend.writes("-Rns", rest)),
         Kind::Info => {
             let mut code = sys.run(&backend.reads("-Si", rest));
-            if code != 0 && !backend.paru && !INTERRUPTED.contains(&code) {
+            if code != 0 && !backend.paru && !stopped(sys, code) {
                 // Not in the repos: maybe installed from elsewhere
                 code = sys.run(&with_args(&["pacman", "-Qi"], rest));
             }
@@ -294,6 +302,9 @@ mod tests {
         /// Captured outputs by command line; a missing one can't start.
         outputs: HashMap<String, (i32, String)>,
         ran: Vec<String>,
+        /// A command line during which the user presses Ctrl-C.
+        interrupt_on: Option<&'static str>,
+        interrupted: bool,
         out: String,
         err: String,
     }
@@ -306,6 +317,9 @@ mod tests {
         fn run(&mut self, argv: &[OsString]) -> i32 {
             let l = line(argv);
             self.ran.push(l.clone());
+            if self.interrupt_on == Some(l.as_str()) {
+                self.interrupted = true;
+            }
             self.codes.get(&l).copied().unwrap_or(0)
         }
         fn capture(&mut self, argv: &[OsString]) -> Option<(i32, Vec<u8>)> {
@@ -318,6 +332,9 @@ mod tests {
         }
         fn is_root(&self) -> bool {
             self.root
+        }
+        fn interrupted(&self) -> bool {
+            self.interrupted
         }
         fn out(&mut self, text: &str) {
             self.out.push_str(text);
@@ -403,7 +420,11 @@ mod tests {
         assert_eq!(paku(&mut f, &["info", "yay"]), 0);
         assert_eq!(f.ran, ["pacman -Si yay", "pacman -Qi yay"]);
         assert_eq!(f.err, "");
-        // Ctrl-C in the first: no second
+        // Ctrl-C in the first: no second, and no AUR note
+        let mut h = with(&[]);
+        h.codes.insert("sudo pacman -S yay".into(), 130);
+        assert_eq!(paku(&mut h, &["install", "yay"]), 130);
+        assert_eq!(h.err, "");
         let mut g = with(&[]);
         g.codes.insert("pacman -Si yay".into(), 130);
         assert_eq!(paku(&mut g, &["info", "yay"]), 130);
@@ -463,6 +484,12 @@ mod tests {
         let mut f = with(&["paru", "flatpak"]);
         f.codes.insert("paru -Syu".into(), 130);
         assert_eq!(paku(&mut f, &["upgrade"]), 130);
+        assert_eq!(f.ran, ["paru -Syu"]);
+        // paru exits 1 on Ctrl-C: what paku got says it was stopped
+        let mut f = with(&["paru", "flatpak"]);
+        f.codes.insert("paru -Syu".into(), 1);
+        f.interrupt_on = Some("paru -Syu");
+        assert_eq!(paku(&mut f, &["upgrade"]), 1);
         assert_eq!(f.ran, ["paru -Syu"]);
         let mut f = with(&["paru", "flatpak"]);
         f.codes.insert("flatpak upgrade".into(), 3);
