@@ -14,7 +14,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install the toolchain and the shells
-        run: pacman -Syu --noconfirm --needed rust bash zsh fish git groff
+        run: pacman -Syu --noconfirm --needed rust bash zsh fish git groff xz diffutils
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Format
         run: cargo fmt --check
@@ -26,3 +26,10 @@ jobs:
         run: |
           warnings=$(groff -man -ww -z paku.1 2>&1)
           [ -z "$warnings" ] || { echo "$warnings"; exit 1; }
+      - name: The OBS source is the same under any umask
+        run: |
+          git config --global --add safe.directory "$PWD"
+          (umask 002 && packaging/make-source.sh /tmp/src-002)
+          (umask 077 && packaging/make-source.sh /tmp/src-077)
+          cmp /tmp/src-002/paku-*.tar.xz /tmp/src-077/paku-*.tar.xz
+          cmp /tmp/src-002/PKGBUILD /tmp/src-077/PKGBUILD
