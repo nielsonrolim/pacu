@@ -257,6 +257,11 @@ fn aur_audit(sys: &mut dyn Sys) -> i32 {
         .filter(|(code, _)| *code == 0)
         .map(|(_, data)| audit::parse_list(&String::from_utf8_lossy(&data)))
         .unwrap_or_default();
+    // Ctrl-C during the download isn't a network problem
+    if sys.interrupted() {
+        sys.err("paku: aur-audit interrupted");
+        return 130;
+    }
     if list.is_empty() {
         sys.out(&format!(
             "Could not fetch the compromised package list from:\n  {AUR_AUDIT_URL}\nCheck your network connection and try again.\n"
@@ -540,6 +545,12 @@ mod tests {
         f.outputs.insert(CURL.into(), (6, String::new()));
         assert_eq!(paku(&mut f, &["aur-sec"]), 1);
         assert!(f.out.starts_with("Could not fetch the compromised package list from:\n  https://md.archlinux.org/"));
+        // Ctrl-C during the download
+        let mut f = with(&["curl"]);
+        f.outputs.insert(CURL.into(), (6, String::new()));
+        f.interrupted = true;
+        assert_eq!(paku(&mut f, &["aur-audit"]), 130);
+        assert_eq!((f.out.as_str(), f.err.as_str()), ("", "paku: aur-audit interrupted\n"));
         // Nothing from the AUR
         let mut f = with(&["curl"]);
         f.outputs.insert(CURL.into(), (0, "```\nbad-bin\n```\n".into()));

@@ -11,7 +11,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
 mod libc {
     pub const SIGINT: i32 = 2;
@@ -34,12 +34,12 @@ static QUIT_BEFORE: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
 /// The signal (SIGINT or SIGQUIT) that killed the last child, or 0.
 static KILLED_BY: AtomicI32 = AtomicI32::new(0);
 
-/// Whether the terminal sent paku a SIGINT or SIGQUIT.
-static GOT_SIGNAL: AtomicBool = AtomicBool::new(false);
+/// The SIGINT or SIGQUIT the terminal sent paku (the last one), or 0.
+static GOT_SIGNAL: AtomicI32 = AtomicI32::new(0);
 
-extern "C" fn on_signal(_: i32) {
+extern "C" fn on_signal(sig: i32) {
     // An atomic store is async-signal-safe
-    GOT_SIGNAL.store(true, Ordering::Relaxed);
+    GOT_SIGNAL.store(sig, Ordering::Relaxed);
 }
 
 /// Catches a signal (only noting it, so paku waits for its child) and gives what it did before (SIG_DFL if
@@ -122,7 +122,7 @@ impl paku::Sys for System {
     }
 
     fn interrupted(&self) -> bool {
-        GOT_SIGNAL.load(Ordering::Relaxed)
+        GOT_SIGNAL.load(Ordering::Relaxed) != 0
     }
 
     fn out(&mut self, text: &str) {
@@ -147,13 +147,13 @@ fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let code = paku::run(&args, &mut System);
     let _ = std::io::stdout().flush();
-    // A child killed by Ctrl-C: paku dies of SIGINT too, so a shell loop around it stops (bash only stops a
-    // loop when the command itself was killed by SIGINT, not on exit code 130). Not for SIGQUIT: its default
-    // action dumps core, and paku would show up as a crash next to the child; it just exits 131
-    if code == 130
-        && KILLED_BY.load(Ordering::Relaxed) == libc::SIGINT
-        && INT_BEFORE.load(Ordering::Relaxed) == libc::SIG_DFL
-    {
+    // Stopped by Ctrl-C (paku got it, or the child died of it): paku dies of SIGINT too, so a shell loop
+    // around it stops. bash only stops a loop when the command itself was killed by SIGINT, not on an exit
+    // code, and paru or sudo exit with one. Not for SIGQUIT: its default action dumps core, and paku would
+    // show up as a crash next to the child; it just exits with the code
+    let got_int = GOT_SIGNAL.load(Ordering::Relaxed) == libc::SIGINT;
+    let child_int = code == 130 && KILLED_BY.load(Ordering::Relaxed) == libc::SIGINT;
+    if (got_int || child_int) && INT_BEFORE.load(Ordering::Relaxed) == libc::SIG_DFL {
         // SAFETY: back to the default action, then the signal to paku itself
         unsafe {
             libc::signal(libc::SIGINT, libc::SIG_DFL);
