@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 188 64" width="188" height="64" role="img" aria-labelledby="t">
+  <title id="t">paku</title>
+  <!-- The pacu of paku.svg and the name, drawn as strokes (no font needed). The letters are a mid-tone
+       teal, readable on light and dark backgrounds alike (the page's theme isn't the viewer's) -->
+  <defs>
+    <clipPath id="body"><ellipse cx="31" cy="32" rx="23" ry="21"/></clipPath>
+  </defs>
+  <path d="M26 13 L37 3 L41 13 Z" fill="#4F6F7D"/>
+  <path d="M27 51 L34 61 L38 51 Z" fill="#E8833A"/>
+  <path d="M11 32 L1 18 Q5 32 1 46 Z" fill="#4F6F7D"/>
+  <ellipse cx="31" cy="32" rx="23" ry="21" fill="#5F8696"/>
+  <path d="M0 41 Q28 30 64 38 L64 64 L0 64 Z" fill="#E8833A" clip-path="url(#body)"/>
+  <path d="M36 17 Q30 32 36 46" fill="none" stroke="#1F2A33" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+  <circle cx="44" cy="24" r="4.2" fill="#1F2A33"/>
+  <circle cx="45.4" cy="22.6" r="1.4" fill="#FFFFFF"/>
+  <rect x="42.5" y="34" width="12" height="6.5" rx="2.2" fill="#FFFFFF" stroke="#1F2A33" stroke-width="1.6"/>
+  <path d="M46.5 34 V40.5 M50.5 34 V40.5" stroke="#1F2A33" stroke-width="1.2"/>
+  <g fill="none" stroke="#4F7A8A" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M75 24 V58"/>
+    <circle cx="86" cy="35" r="11"/>
+    <circle cx="114" cy="35" r="11"/>
+    <path d="M125 24 V46"/>
+    <path d="M136 13 V46 M150 24 L137 36 L151 46"/>
+    <path d="M160 24 V35 A10 10 0 0 0 180 35 M180 24 V46"/>
+  </g>
+</svg>

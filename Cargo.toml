@@ -1,0 +1,15 @@
+[package]
+name = "paku"
+version = "0.1.0"
+edition = "2021"
+description = "A small package-management wrapper around paru/pacman for Arch and derivatives"
+license = "Apache-2.0"
+repository = "https://github.com/nielsonrolim/paku"
+readme = "README.md"
+publish = false
+
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1

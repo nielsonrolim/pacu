@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t">
+  <title id="t">paku: a pacu fish</title>
+  <!-- An original flat pacu (the South American fish with human-like teeth): a mid-tone body and an
+       orange belly, readable on light and dark backgrounds -->
+  <defs>
+    <clipPath id="body"><ellipse cx="31" cy="32" rx="23" ry="21"/></clipPath>
+  </defs>
+  <path d="M26 13 L37 3 L41 13 Z" fill="#4F6F7D"/>
+  <path d="M27 51 L34 61 L38 51 Z" fill="#E8833A"/>
+  <path d="M11 32 L1 18 Q5 32 1 46 Z" fill="#4F6F7D"/>
+  <ellipse cx="31" cy="32" rx="23" ry="21" fill="#5F8696"/>
+  <path d="M0 41 Q28 30 64 38 L64 64 L0 64 Z" fill="#E8833A" clip-path="url(#body)"/>
+  <path d="M36 17 Q30 32 36 46" fill="none" stroke="#1F2A33" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+  <circle cx="44" cy="24" r="4.2" fill="#1F2A33"/>
+  <circle cx="45.4" cy="22.6" r="1.4" fill="#FFFFFF"/>
+  <rect x="42.5" y="34" width="12" height="6.5" rx="2.2" fill="#FFFFFF" stroke="#1F2A33" stroke-width="1.6"/>
+  <path d="M46.5 34 V40.5 M50.5 34 V40.5" stroke="#1F2A33" stroke-width="1.2"/>
+</svg>

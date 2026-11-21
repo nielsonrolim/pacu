@@ -4,29 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A fish-shell wrapper around `paru` (Arch Linux AUR helper) that exposes a smaller, friendlier subcommand surface (`pak upgrade`, `pak install`, `pak remove`, etc.). No build step, no tests.
+paku: a Rust binary wrapping `paru` (or `pacman` without it) with a smaller, friendlier subcommand surface (`paku upgrade`, `paku install`, `paku remove`, ...). It's the successor of the fish function `pak`, whose history this repo keeps. No dependencies besides std, so the vendored tarball for OBS stays small.
 
-- `functions/pak.fish` — the `pak` function: a `switch` statement dispatching subcommands to `paru`, `pacman`, or `flatpak`.
-- `completions/pak.fish` — fish completions: subcommand list plus per-subcommand argument completers backed by `pacman -Ssq` (repo packages) or `pacman -Qq` (installed packages).
-- `install.fish` — copies the two files above into `~/.config/fish/{functions,completions}/`. Idempotent: `cmp -s` skips unchanged files, and existing files that differ from the repo version are backed up to `*.bak` before overwrite. The README documents this as the primary install path; symlinking is an alternative for users who want to `git pull` updates.
-- `uninstall.fish` — removes both files from `~/.config/fish/`. Handles symlinks and regular files; reports when nothing was there to remove.
+- `src/commands.rs`: the subcommand table (name, aliases, help line, usage message, shell description, what to complete). The help, the dispatch and the completions all come from it: an alias added there works and completes everywhere.
+- `src/paku.rs`: what each subcommand runs, through the `Sys` trait (run, capture, has, is_root, out, err). The tests use a fake `Sys` that records the command lines.
+- `src/completions.rs`: the bash, zsh and fish scripts, generated from the table. Package names come from the hidden `paku __complete repo|installed`.
+- `src/audit.rs`: parsing of the AUR compromised list and the match.
+- `src/main.rs`: the real `Sys` (std::process::Command, never a shell; SIGINT/SIGQUIT ignored while a child runs, reset in the child).
+- `paku.1`: the man page, by hand.
+- `assets/`: the pacu logo (paku.svg) and the wordmark (paku-wordmark.svg), drawn by hand.
 
-## Install / try changes locally
+## Build and test
 
-Fish auto-loads from `~/.config/fish/functions/` and `~/.config/fish/completions/`. For active development, symlink this repo's files into those locations so edits take effect immediately. For a one-shot install (or to verify the install script itself works), run `./install.fish`. To pick up changes in an already-open shell, `source ~/.config/fish/functions/pak.fish`.
+```sh
+cargo build --release
+cargo test
+PAKU_REQUIRE_SHELLS=1 cargo test   # fail instead of skipping when bash, zsh or fish is missing
+```
 
-## Editing rule: keep both files in sync
+The CI (.github/workflows/ci.yml) runs the tests in an `archlinux` container with the three shells.
 
-Subcommand aliases live in **two** places that must agree:
+## Rules
 
-1. The `case` arms in `functions/pak.fish` (e.g. `case install add i`).
-2. The `complete -c pak -n '__fish_use_subcommand' -f -a '...'` lines and the `__fish_seen_subcommand_from ...` guards in `completions/pak.fish`.
-
-When adding/renaming a subcommand or alias, update both. The completion guard's alias list must match the `case` line exactly, or tab-completion will silently break for that alias.
+- Keep the help text and exit codes of the fish function (the test `the_help_is_the_one_of_the_fish_function` pins the help).
+- Commands are argument vectors; never `sh -c`.
+- Without paru: pacman with sudo for writes (not as root), official repos only; never install an AUR helper.
 
 ## Runtime assumptions
 
-- `paru` and `pacman` are on PATH (Arch / Arch-derived systems).
-- `pak upgrade` runs `paru -Syu` and then `flatpak upgrade` only if `command -q flatpak` succeeds — systems without flatpak fall through silently.
-- `pak autoremove` defines orphans as `pacman -Qdtq` (unrequired deps) and pipes them to `paru -Rns`.
-- `pak aur-audit` requires `command -q curl` and network access — it fetches the "Arch Linux AUR Compromised" list from the HedgeDoc `/download` endpoint (`https://md.archlinux.org/s/SxbqukK6IA/download`, raw markdown), strips the code-fence lines, and intersects it with `pacman -Qmq`. Exits non-zero if any installed AUR package matches.
+- `pacman` on PATH (Arch / Arch-derived). `paru`, `flatpak`, `cachy-update`/`arch-update`, `curl` and `checkupdates` are optional and looked up on the PATH.
+- `paku aur-audit` fetches the "Arch Linux AUR Compromised" list from the HedgeDoc `/download` endpoint (`https://md.archlinux.org/s/SxbqukK6IA/download`, raw markdown) with `curl -fsSL --max-time 20`, drops the code-fence and empty lines, and intersects it with `pacman -Qmq`. Exits non-zero if any installed AUR package matches, or if the list can't be fetched.
