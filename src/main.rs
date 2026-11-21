@@ -129,16 +129,17 @@ fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let code = paku::run(&args, &mut System);
     let _ = std::io::stdout().flush();
-    // A child killed by Ctrl-C: paku dies of the same signal, so a shell loop around it stops too (bash
-    // only stops a loop when the command itself was killed by SIGINT, not on exit code 130)
-    let sig = KILLED_BY.load(Ordering::Relaxed);
-    let before =
-        if sig == libc::SIGINT { INT_BEFORE.load(Ordering::Relaxed) } else { QUIT_BEFORE.load(Ordering::Relaxed) };
-    if paku::INTERRUPTED.contains(&code) && sig != 0 && before == libc::SIG_DFL {
+    // A child killed by Ctrl-C: paku dies of SIGINT too, so a shell loop around it stops (bash only stops a
+    // loop when the command itself was killed by SIGINT, not on exit code 130). Not for SIGQUIT: its default
+    // action dumps core, and paku would show up as a crash next to the child; it just exits 131
+    if code == 130
+        && KILLED_BY.load(Ordering::Relaxed) == libc::SIGINT
+        && INT_BEFORE.load(Ordering::Relaxed) == libc::SIG_DFL
+    {
         // SAFETY: back to the default action, then the signal to paku itself
         unsafe {
-            libc::signal(sig, libc::SIG_DFL);
-            libc::kill(libc::getpid(), sig);
+            libc::signal(libc::SIGINT, libc::SIG_DFL);
+            libc::kill(libc::getpid(), libc::SIGINT);
         }
     }
     std::process::exit(code);

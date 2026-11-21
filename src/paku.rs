@@ -166,7 +166,7 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
         Kind::Remove => sys.run(&backend.writes("-Rns", rest)),
         Kind::Info => {
             let mut code = sys.run(&backend.reads("-Si", rest));
-            if code != 0 && !backend.paru {
+            if code != 0 && !backend.paru && !INTERRUPTED.contains(&code) {
                 // Not in the repos: maybe installed from elsewhere
                 code = sys.run(&with_args(&["pacman", "-Qi"], rest));
             }
@@ -403,6 +403,11 @@ mod tests {
         assert_eq!(paku(&mut f, &["info", "yay"]), 0);
         assert_eq!(f.ran, ["pacman -Si yay", "pacman -Qi yay"]);
         assert_eq!(f.err, "");
+        // Ctrl-C in the first: no second
+        let mut g = with(&[]);
+        g.codes.insert("pacman -Si yay".into(), 130);
+        assert_eq!(paku(&mut g, &["info", "yay"]), 130);
+        assert_eq!(g.ran, ["pacman -Si yay"]);
         f.codes.insert("pacman -Qi yay".into(), 1);
         f.ran.clear();
         assert_eq!(paku(&mut f, &["info", "yay"]), 1);
