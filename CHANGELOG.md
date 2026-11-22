@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-22)
 
 - **`paku maintain` has its own flow** when cachy-update isn't installed: the pending updates, the Arch news
   not shown before, the upgrade, then orphans, unused Flatpak runtimes, the package cache, `.pacnew` files,
