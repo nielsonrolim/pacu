@@ -100,6 +100,9 @@ struct Flow<'a> {
     /// Only listing: `--dry-run` or no terminal.
     listing: bool,
     failed: Vec<&'static str>,
+    /// Why a reboot is recommended (a new kernel not booted, services kept running on old files): said once,
+    /// in the last line.
+    reboot: Vec<&'static str>,
 }
 
 /// `paku maintain` with its arguments; gives the exit code.
@@ -116,14 +119,19 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys, backend: &Backend) -> i32 {
         sys.err("paku maintain: another paku maintain is already running");
         return LOCK_HELD;
     }
-    let mut flow = Flow { sys, backend, listing, failed: Vec::new() };
+    let mut flow = Flow { sys, backend, listing, failed: Vec::new(), reboot: Vec::new() };
     let result = flow.steps(&o);
-    let Flow { sys, failed, .. } = flow;
+    let Flow { sys, failed, reboot, .. } = flow;
     if result.is_err() {
         sys.out("\npaku maintain: stopped (Ctrl-C)\n");
         return 130;
     }
-    let suffix = if listing { " (listing only, nothing was changed)" } else { "" };
+    let listed = if listing { " (listing only, nothing was changed)" } else { "" };
+    let suffix = if reboot.is_empty() {
+        listed.to_string()
+    } else {
+        format!("{listed}; reboot recommended ({})", reboot.join(", "))
+    };
     if failed.is_empty() {
         sys.out(&format!("\npaku maintain: done{suffix}\n"));
         0
@@ -539,6 +547,7 @@ impl Flow<'_> {
             }
         }
         if !kept.is_empty() {
+            self.reboot.push("services kept running on old files");
             self.note(&format!(
                 "not restarted here (they'd end the session or the network): {}; they still run the old files until \
                  you restart them yourself or reboot",
@@ -594,13 +603,13 @@ impl Flow<'_> {
         }
         self.title("Kernel");
         self.note(&format!("the running kernel ({release}) is no longer installed: reboot to use the new one"));
-        if self.listing {
-            return Ok(());
-        }
-        if self.ask("Reboot now?", false)? {
+        if !self.listing && self.ask("Reboot now?", false)? {
             let code = self.sys.run(&argv(["systemctl", "reboot"]));
-            self.ran("reboot", code)?;
+            if self.ran("reboot", code)? {
+                return Ok(());
+            }
         }
+        self.reboot.push("a new kernel");
         Ok(())
     }
 }
@@ -751,7 +760,12 @@ mod tests {
             "not restarted here (they'd end the session or the network): dbus-broker.service NetworkManager.service \
              getty@tty2.service"
         ));
-        assert!(f.out.ends_with("paku maintain: done\n"), "{}", f.out);
+        // Rebooted for the kernel: only the services kept running are left to say
+        assert!(
+            f.out.ends_with("paku maintain: done; reboot recommended (services kept running on old files)\n"),
+            "{}",
+            f.out
+        );
         assert!(f.ran.iter().all(|l| !l.contains("--noconfirm")));
     }
 
@@ -793,7 +807,13 @@ mod tests {
             assert!(f.out.contains("would run: sudo pacman -Rns -- orphan1 orphan2"));
             assert!(f.out.contains("would run: pacdiff --sudo"));
             assert!(f.out.contains("would run: flatpak uninstall --unused"));
-            assert!(f.out.ends_with("paku maintain: done (listing only, nothing was changed)\n"), "{}", f.out);
+            assert!(
+                f.out.ends_with(
+                    "paku maintain: done (listing only, nothing was changed); reboot recommended (a new kernel)\n"
+                ),
+                "{}",
+                f.out
+            );
             assert_eq!(f.saved_news, None);
             assert_eq!(f.out.contains("no terminal"), !tty);
         }
@@ -838,7 +858,14 @@ mod tests {
         f.answers = vec![true; 8];
         assert_eq!(paku(&mut f, &["maintain"]), 2);
         assert!(f.ran.contains(&"systemctl reboot".to_string()));
-        assert!(f.out.ends_with("paku maintain: done, 2 steps failed (orphans, pacnew)\n"), "{}", f.out);
+        assert!(
+            f.out.ends_with(
+                "paku maintain: done, 2 steps failed (orphans, pacnew); reboot recommended (services kept running \
+                 on old files)\n"
+            ),
+            "{}",
+            f.out
+        );
     }
 
     #[test]
@@ -854,6 +881,7 @@ mod tests {
         assert!(f.out.contains("skipped: the upgrade failed"));
         assert!(f.out.contains("foo.service (system)"));
         assert!(f.out.contains("takes 1.5G"));
+        // No services nor kernel check after a failed upgrade
         assert!(f.out.ends_with("paku maintain: done, 1 step failed (upgrade)\n"), "{}", f.out);
         assert_eq!(f.saved_news, None);
     }
@@ -926,6 +954,29 @@ mod tests {
         f.answers = vec![true; 7];
         assert_eq!(paku(&mut f, &["maintain"]), 0);
         assert!(!f.ran.contains(&"systemctl reboot".to_string()));
+    }
+
+    #[test]
+    fn one_reboot_line_for_the_kernel_and_the_services() {
+        let mut f = busy(ALL);
+        // Every question yes, but no to the reboot
+        f.answers = vec![true, true, true, true, true, true, true, false];
+        assert_eq!(paku(&mut f, &["maintain"]), 0);
+        assert!(
+            f.out.ends_with(
+                "paku maintain: done; reboot recommended (services kept running on old files, a new kernel)\n"
+            ),
+            "{}",
+            f.out
+        );
+        assert_eq!(f.out.matches("reboot recommended").count(), 1);
+        // Nothing kept and the kernel up to date: no line
+        let mut f = busy(ALL);
+        f.outputs.insert(format!("sudo -n {CHECKSERVICES}"), (0, "systemctl restart 'cups.service'\n".into()));
+        f.files.push("/usr/lib/modules/6.17.1-arch1-1/vmlinuz".into());
+        f.answers = vec![true; 7];
+        assert_eq!(paku(&mut f, &["maintain"]), 0);
+        assert!(f.out.ends_with("paku maintain: done\n"), "{}", f.out);
     }
 
     #[test]

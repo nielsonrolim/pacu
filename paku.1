@@ -71,6 +71,9 @@ the service of the current login session, D\-Bus, logind, the network services, 
 units;
 and a reboot when the running kernel is no longer installed.
 Every step but the upgrade asks [y/N].
+The last line says how it went, and ends with
+.I "; reboot recommended (...)"
+when a new kernel wasn't booted or services were kept running on old files.
 A step whose tool is missing is skipped with a note.
 Without a terminal, or with
 .BR \-\-dry\-run ,
