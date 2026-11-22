@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 (2026-11-22)
+
+- `paku maintain`: a Ctrl-C at a question now prints `paku maintain: stopped (Ctrl-C)` and shows the cursor
+  again before paku dies of SIGINT, as a Ctrl-C during a command already did. A shell around it stops either
+  way and sees 130. The man page says how a caller can carry on (`trap : INT`, not ignoring SIGINT).
+- `paku maintain`: `sudo -v` right before the services check, so a password timestamp that ran out while a
+  question waited asks again instead of skipping the check (the message stays when sudo fails or is cancelled).
+- `paku maintain`: no "none" right after the "not restarted here" line when every service found is kept.
 ## 0.3.0 (2026-11-22)
 
 - **`paku maintain` has its own flow** when cachy-update isn't installed: the pending updates, the Arch news

@@ -525,6 +525,15 @@ impl Flow<'_> {
         // pacdiff (its own step ran), -F: no failed list (its own step too). No -i: the units kept running are
         // filtered here, so they can still be named (with a reboot hint) instead of disappearing
         let words = ["checkservices", "-F", "-P", "-R"];
+        // A question left waiting can outlast sudo's timestamp: sudo -v asks for the password again here, on the
+        // terminal, since the sudo -n below can only fail. If it fails or is cancelled, the -n below gives the
+        // message. (The other root steps run sudo without -n, so it asks itself.)
+        if !self.backend.root && !self.listing {
+            let code = self.sys.run(&argv(["sudo", "-v"]));
+            if stopped(self.sys, code) {
+                return Err(Stopped);
+            }
+        }
         // sudo -n: a question for the password would be hidden in the captured output
         let line = if self.backend.root { argv(words) } else { argv(["sudo", "-n"].iter().chain(&words)) };
         let output = match self.capture(line)? {
@@ -558,7 +567,10 @@ impl Flow<'_> {
             ));
         }
         if restart.is_empty() {
-            self.note("none");
+            // After the "not restarted here" line, a "none" would read as if nothing had been found
+            if kept.is_empty() {
+                self.note("none");
+            }
             return Ok(());
         }
         self.show(&restart);
@@ -746,6 +758,49 @@ mod tests {
         paku(&mut f, &["maintain"]);
         assert!(f.ran.contains(&"sudo systemctl restart -- cups.service".to_string()));
         assert!(!f.out.contains("not restarted here"), "{}", f.out);
+    }
+
+    #[test]
+    fn all_services_kept_gives_no_none_line() {
+        let mut f = busy(ALL);
+        f.outputs.insert(format!("sudo -n {CHECKSERVICES}"), (0, "systemctl restart 'greetd.service'\n".into()));
+        f.answers = vec![true; 8];
+        assert_eq!(paku(&mut f, &["maintain"]), 0);
+        let services = f.out.split(":: Services to restart").nth(1).unwrap().split("::").next().unwrap();
+        assert!(services.contains("not restarted here"), "{services}");
+        assert!(!services.contains("none"), "{services}");
+    }
+
+    #[test]
+    fn sudo_asks_again_before_checking_the_services() {
+        // A long question can outlast sudo's timestamp: sudo -v right before the sudo -n
+        let mut f = busy(ALL);
+        f.answers = vec![true; 8];
+        assert_eq!(paku(&mut f, &["maintain"]), 0);
+        let at = |line: &str| f.ran.iter().position(|l| l == line).unwrap_or_else(|| panic!("{line}: {:?}", f.ran));
+        assert_eq!(at("sudo -v") + 1, at(&format!("sudo -n {CHECKSERVICES}")));
+        // A failed or cancelled sudo -v: the message, and the flow goes on
+        let mut f = busy(ALL);
+        f.codes.insert("sudo -v".into(), 1);
+        f.outputs.remove(&format!("sudo -n {CHECKSERVICES}"));
+        f.outputs.insert(format!("sudo -n {CHECKSERVICES}"), (1, String::new()));
+        f.answers = vec![true; 8];
+        assert_eq!(paku(&mut f, &["maintain"]), 0);
+        assert!(f.out.contains("couldn't check them (sudo asked for the password again)"), "{}", f.out);
+        // Ctrl-C at sudo's password prompt stops the flow
+        let mut f = busy(ALL);
+        f.interrupt_on = Some("sudo -v");
+        f.answers = vec![true; 8];
+        assert_eq!(paku(&mut f, &["maintain"]), 130);
+        assert!(f.ran.iter().all(|l| !l.contains("checkservices")), "{:?}", f.ran);
+        // Not when listing (it changes nothing) nor as root (no sudo)
+        for (args, root) in [(&["maintain", "--dry-run"][..], false), (&["maintain"][..], true)] {
+            let mut f = busy(ALL);
+            f.root = root;
+            f.answers = vec![true; 8];
+            paku(&mut f, args);
+            assert!(!f.ran.contains(&"sudo -v".to_string()), "{args:?} {root}: {:?}", f.ran);
+        }
     }
 
     #[test]

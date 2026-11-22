@@ -28,6 +28,7 @@ mod libc {
         pub fn geteuid() -> u32;
         pub fn getpid() -> i32;
         pub fn kill(pid: i32, sig: i32) -> i32;
+        pub fn write(fd: i32, buf: *const std::ffi::c_void, count: usize) -> isize;
         pub fn isatty(fd: i32) -> i32;
         pub fn flock(fd: i32, operation: i32) -> i32;
     }
@@ -46,6 +47,23 @@ static GOT_SIGNAL: AtomicI32 = AtomicI32::new(0);
 extern "C" fn on_signal(sig: i32) {
     // An atomic store is async-signal-safe
     GOT_SIGNAL.store(sig, Ordering::Relaxed);
+}
+
+/// What a Ctrl-C at a question prints before paku dies of it: the cursor shown again (a child's progress bar may
+/// have hidden it; the line discipline's echo is never turned off by paku), then the same line as a Ctrl-C
+/// during a step.
+const STOPPED_AT_QUESTION: &[u8] = b"\x1b[?25h\npaku maintain: stopped (Ctrl-C)\n";
+
+/// SIGINT during a question (no child runs): the line, then paku dies of the signal itself, as during a step,
+/// so a shell around it sees a command killed by SIGINT. Only async-signal-safe calls: write, signal, kill
+/// (SIGINT is blocked while the handler runs, so the kill takes effect when it returns, with the default action).
+extern "C" fn on_signal_at_question(_sig: i32) {
+    // SAFETY: write, signal, getpid and kill are async-signal-safe; the buffer is a static
+    unsafe {
+        libc::write(1, STOPPED_AT_QUESTION.as_ptr().cast(), STOPPED_AT_QUESTION.len());
+        libc::signal(libc::SIGINT, libc::SIG_DFL);
+        libc::kill(libc::getpid(), libc::SIGINT);
+    }
 }
 
 /// Catches a signal (only noting it, so paku waits for its child) and gives what it did before (SIG_DFL if
@@ -152,12 +170,13 @@ impl paku::Sys for System {
     }
 
     fn ask(&mut self, question: &str, default: bool) -> bool {
-        // No child runs during a question: Ctrl-C gets its default action back, so it ends paku right there
-        // (and a shell around it sees the signal), instead of waiting for Enter
+        // No child runs during a question: Ctrl-C ends paku right there instead of waiting for Enter, with the
+        // "stopped" line and then the signal itself (a shell around it sees it). A SIGINT paku inherited as
+        // ignored (the background of a script) stays ignored
         let restore = INT_BEFORE.load(Ordering::Relaxed) == libc::SIG_DFL;
         if restore {
-            // SAFETY: no other thread; back to the default action for the time of the read
-            unsafe { libc::signal(libc::SIGINT, libc::SIG_DFL) };
+            // SAFETY: no other thread; the handler only makes async-signal-safe calls
+            unsafe { libc::signal(libc::SIGINT, on_signal_at_question as extern "C" fn(i32) as usize) };
         }
         let answer = loop {
             print!("{question} {} ", if default { "[Y/n]" } else { "[y/N]" });
@@ -268,8 +287,14 @@ fn main() {
     // exits with the code. paru exits 1 on a Ctrl-C under sudo's pty, which no one can tell from a failure
     let got_int = GOT_SIGNAL.load(Ordering::Relaxed) == libc::SIGINT;
     if (got_int || code == 130) && INT_BEFORE.load(Ordering::Relaxed) == libc::SIG_DFL {
-        // SAFETY: back to the default action, then the signal to paku itself
+        // SAFETY: isatty only looks at the descriptor; then back to the default action, and the signal to paku
+        // itself. The cursor first: a child stopped in its progress bar may have left it hidden (pacman shows it
+        // again itself; a helper may not)
         unsafe {
+            if libc::isatty(1) == 1 {
+                let show = b"\x1b[?25h";
+                libc::write(1, show.as_ptr().cast(), show.len());
+            }
             libc::signal(libc::SIGINT, libc::SIG_DFL);
             libc::kill(libc::getpid(), libc::SIGINT);
         }
