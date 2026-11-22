@@ -64,7 +64,9 @@ failed units and a journal over 1 GiB, as information only;
 after an upgrade, the services to restart
 .RB ( checkservices ,
 from archlinux\-contrib),
-all or none, never the display managers, D\-Bus, logind, the network services or
+all or none, never the display managers (with the unit behind
+.IR display\-manager.service ),
+the service of the current login session, D\-Bus, logind, the network services, the gettys or
 .I user@
 units;
 and a reboot when the running kernel is no longer installed.

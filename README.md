@@ -132,7 +132,7 @@ With [`cachy-update`](https://github.com/CachyOS/cachy-update) installed, it run
 6. the package cache (`sudo paccache -rk3` and `-ruk0`), then the helper's own caches (`paru -Sc`);
 7. `.pacnew` and `.pacsave` files (`pacdiff --sudo`, so `$DIFFPROG` runs as you);
 8. failed system and user units, and the journal size when over 1 GiB, as information only;
-9. after an upgrade, the services running old libraries (`checkservices`, from archlinux-contrib), restarted all or none; the display managers, D-Bus, logind, the network services, the gettys and `user@` units are only named, never restarted;
+9. after an upgrade, the services running old libraries (`checkservices`, from archlinux-contrib), restarted all or none; the display managers (with the unit behind `display-manager.service`), the service of the login session paku runs in (its PAM service: `greetd`, `sshd`…), D-Bus, logind, the network services, the gettys and `user@` units are only named, never restarted;
 10. when the running kernel is no longer installed, an offer to reboot.
 
 Steps 4 to 10 ask `[y/N]`: a plain Enter keeps everything. A step whose tool is missing (`curl`, `flatpak`, `pacman-contrib`, `archlinux-contrib`) is skipped with a note. Without a terminal, or with `--dry-run`, every step only lists what it would do, the upgrade included. `--no-flatpak` leaves Flatpak out, and `--devel` is passed to the helper. paku never passes `--noconfirm`.

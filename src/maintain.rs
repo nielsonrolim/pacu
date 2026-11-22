@@ -36,6 +36,7 @@ const DISPLAY_MANAGERS: &[&str] = &[
     "nodm.service",
     "ly.service",
     "lemurs.service",
+    "display-manager.service",
 ];
 
 /// What would end the session or the network in the middle of the run (also the units starting with
@@ -508,12 +509,16 @@ impl Flow<'_> {
             self.skip("install archlinux-contrib (checkservices) to find them");
             return Ok(());
         }
-        let mut words = vec!["checkservices", "-F", "-P", "-R"];
-        for unit in DISPLAY_MANAGERS {
-            words.extend(["-i", unit]);
+        let ignored = self.session_units()?;
+        // -R: only list (paku restarts them itself, after its own y/N; never -a), -P: no pacdiff (its own step
+        // ran), -F: no failed list (its own step too)
+        let mut words: Vec<String> = ["checkservices", "-F", "-P", "-R"].map(String::from).to_vec();
+        for unit in &ignored {
+            words.extend(["-i".to_string(), unit.clone()]);
         }
         // sudo -n: a question for the password would be hidden in the captured output
-        let line = if self.backend.root { argv(&words) } else { argv(["sudo", "-n"].iter().chain(&words)) };
+        let line =
+            if self.backend.root { argv(&words) } else { argv(["sudo", "-n"].map(String::from).iter().chain(&words)) };
         let output = match self.capture(line)? {
             Some((0, data)) => lines(&data),
             _ => {
@@ -528,7 +533,7 @@ impl Flow<'_> {
             if !unit.ends_with(".service") || !unit.chars().all(|c| c.is_ascii_graphic()) {
                 continue;
             }
-            let keep = DISPLAY_MANAGERS.contains(&unit)
+            let keep = ignored.iter().any(|u| u == unit)
                 || SESSION_AND_NETWORK.contains(&unit)
                 || KEEP_PREFIXES.iter().any(|p| unit.starts_with(p));
             let list = if keep { &mut kept } else { &mut restart };
@@ -546,6 +551,32 @@ impl Flow<'_> {
         self.show(&restart);
         let line = self.as_root(&["systemctl", "restart", "--"], &restart);
         self.confirm("services", "Restart them all?", vec![line])
+    }
+
+    /// The units checkservices never offers: the display managers, the unit `display-manager.service` points
+    /// to, and the service of the login session paku runs in (its PAM service: greetd, sddm, sshd…), so the
+    /// restart can't end the session under any display manager.
+    fn session_units(&mut self) -> Step<Vec<String>> {
+        let mut units: Vec<String> = DISPLAY_MANAGERS.iter().map(|u| u.to_string()).collect();
+        let alias = self.query(argv(["systemctl", "show", "-p", "Id", "--value", "display-manager.service"]))?;
+        let session = self.query(argv(["loginctl", "show-session", "auto", "-p", "Service", "--value"]))?;
+        let candidates = alias.into_iter().take(1).chain(session.into_iter().take(1).map(|s| {
+            if s.ends_with(".service") {
+                s
+            } else {
+                format!("{s}.service")
+            }
+        }));
+        for unit in candidates {
+            let name = unit.strip_suffix(".service").unwrap_or_default();
+            let valid = !name.is_empty()
+                && !name.starts_with('-')
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.@:\\".contains(c));
+            if valid && !units.contains(&unit) {
+                units.push(unit);
+            }
+        }
+        Ok(units)
     }
 
     fn kernel(&mut self) -> Step {
@@ -601,7 +632,7 @@ mod tests {
 
     const CHECKSERVICES: &str = "checkservices -F -P -R -i gdm.service -i plasmalogin.service -i sddm.service \
         -i lightdm.service -i lxdm.service -i slim.service -i xdm.service -i greetd.service -i nodm.service \
-        -i ly.service -i lemurs.service";
+        -i ly.service -i lemurs.service -i display-manager.service -i sshd.service";
 
     /// A system with everything to do: updates, news, orphans, unused Flatpaks, cache, a .pacnew, a failed
     /// unit, a big journal, services to restart and a new kernel.
@@ -634,7 +665,44 @@ mod tests {
         );
         o.insert("uname -r".into(), (0, "6.17.1-arch1-1\n".into()));
         o.insert("systemd-detect-virt --container --quiet".into(), (1, String::new()));
+        // greetd behind the alias (already in the list) and a session over ssh
+        o.insert(ALIAS.into(), (0, "greetd.service\n".into()));
+        o.insert(SESSION.into(), (0, "sshd\n".into()));
         f
+    }
+
+    const ALIAS: &str = "systemctl show -p Id --value display-manager.service";
+    const SESSION: &str = "loginctl show-session auto -p Service --value";
+
+    #[test]
+    fn the_display_manager_and_the_session_are_never_offered() {
+        let mut f = busy(ALL);
+        // A display manager not in the list, behind the alias, and a session started by it
+        f.outputs.insert(ALIAS.into(), (0, "mydm.service\n".into()));
+        f.outputs.insert(SESSION.into(), (0, "mydm-greeter\n".into()));
+        let line = format!(
+            "sudo -n {} -i display-manager.service -i mydm.service -i mydm-greeter.service",
+            CHECKSERVICES.trim_end_matches(" -i display-manager.service -i sshd.service")
+        );
+        f.outputs.insert(
+            line.clone(),
+            (0, "systemctl restart 'mydm.service'\nsystemctl restart 'mydm-greeter.service'\nsystemctl restart 'cups.service'\n".into()),
+        );
+        f.answers = vec![true; 8];
+        assert_eq!(paku(&mut f, &["maintain"]), 0);
+        assert!(f.ran.contains(&line), "{:?}", f.ran);
+        assert!(f.ran.contains(&"sudo systemctl restart -- cups.service".to_string()));
+        assert!(f.ran.iter().all(|l| !l.contains("restart -- mydm")), "{:?}", f.ran);
+        // checkservices never restarts nor answers itself
+        assert!(f.ran.iter().filter(|l| l.contains("checkservices")).all(|l| l.contains(" -R ") && !l.contains(" -a")));
+        // A value that isn't a unit name is left out
+        let mut f = busy(ALL);
+        f.outputs.insert(ALIAS.into(), (0, "-x.service\n".into()));
+        f.outputs.insert(SESSION.into(), (0, "a b;c\n".into()));
+        f.answers = vec![true; 8];
+        paku(&mut f, &["maintain"]);
+        let check = f.ran.iter().find(|l| l.contains("checkservices")).unwrap();
+        assert!(check.ends_with("-i display-manager.service"), "{check}");
     }
 
     const ALL: &[&str] =
