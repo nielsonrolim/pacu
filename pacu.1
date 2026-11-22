@@ -1,6 +1,6 @@
 .TH PACU 1 2026-11-21 "pacu 0.1.1" "User Commands"
 .SH NAME
-pacu \- a small package-management wrapper around paru and pacman
+pacu \- a small package-management wrapper around an AUR helper and pacman
 .SH SYNOPSIS
 .B pacu
 .I subcommand
@@ -11,9 +11,16 @@ pacu \- a small package-management wrapper around paru and pacman
 .SH DESCRIPTION
 .B pacu
 gives everyday package management on Arch Linux and its derivatives a smaller set of subcommands.
-It uses
-.BR paru (8)
-when it is on the PATH, so the AUR is included; otherwise
+It uses an AUR helper,
+.BR paru (8),
+.BR yay (8)
+or
+.BR pikaur (1),
+so the AUR is included: the one chosen (see
+.BR CONFIGURATION ),
+or else the first of them on the PATH, in that order. Below,
+.B paru
+stands for the helper in use. Without one,
 .BR pacman (8),
 with
 .BR sudo (8)
@@ -108,11 +115,49 @@ with
 .TP
 .BR completions " " bash | zsh | fish
 Prints the completion script for the shell.
+.SH CONFIGURATION
+The helper comes from the
+.B PACU_HELPER
+environment variable or, without it, from a
+.B helper
+line in the config file:
+.PP
+.RS
+.nf
+# auto, paru, yay, pikaur or pacman
+helper = yay
+.fi
+.RE
+.PP
+.B auto
+(the default, also with no file) takes the first helper installed, in the order paru, yay, pikaur, and
+pacman without any.
+.B pacman
+uses pacman even when a helper is installed. A chosen helper that isn't installed, or an unknown value,
+gets a warning on stderr and counts as
+.BR auto .
+Only the subcommands that run the package tool read the setting.
+.SH ENVIRONMENT
+.TP
+.B PACU_HELPER
+The helper, as in the config file; it wins over the file.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/pacu/config
+The config file
+.RI ( ~/.config/pacu/config
+when XDG_CONFIG_HOME is unset or not absolute). Lines are
+.IR "key = value" ,
+the value may be quoted, and
+.B #
+starts a comment.
 .SH EXIT STATUS
 The exit code of the command run. 1 with no subcommand, an unknown one or a missing argument;
 .B aur\-audit
 exits 1 when an installed package is on the list or the list can't be fetched.
 .SH SEE ALSO
 .BR paru (8),
+.BR yay (8),
+.BR pikaur (1),
 .BR pacman (8),
 .BR checkupdates (8)

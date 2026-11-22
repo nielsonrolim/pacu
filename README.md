@@ -2,7 +2,7 @@
 
 # pacu
 
-A small package-management wrapper around [`paru`](https://github.com/Morganamilo/paru) and `pacman`, for Arch Linux and its derivatives (CachyOS, Swaydesk Arch, ...). It exposes a simpler, easier-to-remember subcommand surface for everyday package management, in any shell.
+A small package-management wrapper around an AUR helper ([`paru`](https://github.com/Morganamilo/paru), [`yay`](https://github.com/Jguer/yay) or [`pikaur`](https://github.com/actionless/pikaur)) and `pacman`, for Arch Linux and its derivatives (CachyOS, Swaydesk Arch, ...). It exposes a simpler, easier-to-remember subcommand surface for everyday package management, in any shell.
 
 pacu is the Rust successor of the fish function [pak](https://github.com/nielsonrolim/pak); its history is kept here.
 
@@ -27,11 +27,13 @@ pacu autoremove          # remove orphaned packages
 pacu completions <shell> # print the bash, zsh or fish completions
 ```
 
-## With or without paru
+## With or without an AUR helper
 
-pacu uses `paru` when it's on your PATH, so the AUR is included. Without it, pacu uses `pacman` and the official repos only, with `sudo` for the operations that change the system (`upgrade`, `update`, `install`, `remove`, `clean`, `autoremove`). pacu never installs an AUR helper for you.
+pacu uses an AUR helper, so the AUR is included: `paru`, `yay` or `pikaur`, the first one on your PATH in that order, or the one you choose (below). Without one, pacu uses `pacman` and the official repos only, with `sudo` for the operations that change the system (`upgrade`, `update`, `install`, `remove`, `clean`, `autoremove`). pacu never installs an AUR helper for you.
 
-| Subcommand   | With paru                 | Without paru                                       |
+The table shows paru; yay and pikaur get the same operations (`yay -Syu`, `pikaur -S`, ...).
+
+| Subcommand   | With paru                 | Without a helper                                   |
 | ------------ | ------------------------- | -------------------------------------------------- |
 | `upgrade`    | `paru -Syu`               | `sudo pacman -Syu`                                 |
 | `update`     | `paru -Sy`                | `sudo pacman -Sy`                                  |
@@ -43,13 +45,24 @@ pacu uses `paru` when it's on your PATH, so the AUR is included. Without it, pac
 | `autoremove` | `paru -Rns` the orphans   | `sudo pacman -Rns` the orphans                     |
 | `check`      | `paru -Qu`                | `checkupdates` (pacman-contrib), else `pacman -Qu` |
 
-`owns`, `files`, `list` and `aur` always use `pacman`. When `search`, `install` or `info` fail without paru, pacu adds that the AUR wasn't used. As root, pacu runs `pacman` without `sudo`.
+`owns`, `files`, `list` and `aur` always use `pacman`. When `search`, `install` or `info` fail without a helper, pacu adds that the AUR wasn't used. As root, pacu runs `pacman` without `sudo`.
 
 `check` and `maintain` prefer `cachy-update`, then `arch-update`, when installed.
 
+### Choosing the helper
+
+Set `PACU_HELPER`, or put a `helper` line in `~/.config/pacu/config` (`$XDG_CONFIG_HOME/pacu/config`):
+
+```toml
+# auto, paru, yay, pikaur or pacman
+helper = "yay"
+```
+
+`auto` (the default, also with no file) takes the first helper installed: paru, then yay, then pikaur, then pacman. `pacman` uses pacman even when a helper is installed. A chosen helper that isn't installed, or an unknown value, gets a warning on stderr and counts as `auto`. `PACU_HELPER` wins over the file.
+
 `pacu update` only refreshes the package databases (`-Sy`), as the fish function did. Installing a package right after it, without upgrading, is a partial upgrade, which Arch doesn't support: prefer `pacu upgrade`, or `pacu check` to see what's pending.
 
-Every command runs directly, as an argument list (never through a shell), and pacu exits with its code. Ctrl-C goes to paru or pacman, and pacu waits for them to finish.
+Every command runs directly, as an argument list (never through a shell), and pacu exits with its code. Ctrl-C goes to the helper or pacman, and pacu waits for them to finish.
 
 ### Known conflict: BlackArch's pacu
 
@@ -58,7 +71,7 @@ Every command runs directly, as an argument list (never through a shell), and pa
 ## Requirements
 
 - `pacman` (Arch or an Arch-derived distro)
-- optional: [`paru`](https://github.com/Morganamilo/paru) (AUR), `flatpak` (`pacu upgrade` also runs `flatpak upgrade`), [`cachy-update`](https://github.com/CachyOS/cachy-update) or `arch-update` (`pacu maintain`), `curl` (`pacu aur-audit`), `pacman-contrib` (`pacu check` without paru)
+- optional: an AUR helper, [`paru`](https://github.com/Morganamilo/paru), [`yay`](https://github.com/Jguer/yay) or [`pikaur`](https://github.com/actionless/pikaur), `flatpak` (`pacu upgrade` also runs `flatpak upgrade`), [`cachy-update`](https://github.com/CachyOS/cachy-update) or `arch-update` (`pacu maintain`), `curl` (`pacu aur-audit`), `pacman-contrib` (`pacu check` without a helper)
 
 ## Install
 
@@ -118,7 +131,7 @@ Delegates to [`cachy-update`](https://github.com/CachyOS/cachy-update) (falling 
 pacu check
 ```
 
-Lists available updates without applying them: `cachy-update --list` or `arch-update --list` when available, otherwise `paru -Qu` (without paru, `checkupdates`, else `pacman -Qu`).
+Lists available updates without applying them: `cachy-update --list` or `arch-update --list` when available, otherwise `paru -Qu` (without a helper, `checkupdates`, else `pacman -Qu`).
 
 ### Search, install, inspect and remove
 

@@ -5,6 +5,7 @@ use std::ffi::{OsStr, OsString};
 use crate::audit;
 use crate::commands::{self, Kind};
 use crate::completions;
+use crate::helper::{self, Choice};
 
 /// Where the "Arch Linux AUR Compromised" list is published (HedgeDoc's raw markdown download).
 pub const AUR_AUDIT_URL: &str = "https://md.archlinux.org/s/SxbqukK6IA/download";
@@ -22,6 +23,9 @@ pub trait Sys {
     fn has(&self, program: &str) -> bool;
     /// Whether pacu runs as root (then pacman needs no sudo).
     fn is_root(&self) -> bool;
+    /// The helper the user picked and where (`PACU_HELPER`, then the `helper` of the config file); None
+    /// for auto.
+    fn helper_setting(&self) -> Option<(String, String)>;
     /// Whether the terminal sent pacu a Ctrl-C or Ctrl-\ (paru, unlike pacman, exits 1 on it, so the
     /// child's code doesn't tell).
     fn interrupted(&self) -> bool;
@@ -44,33 +48,37 @@ where
     words.into_iter().map(|w| w.as_ref().to_os_string()).collect()
 }
 
-/// The package tool: paru when it's installed (repos and the AUR), otherwise pacman (the official
+/// The package tool: an AUR helper (repos and the AUR; see `helper`), otherwise pacman (the official
 /// repos only, with sudo where pacman needs root).
 struct Backend {
-    paru: bool,
+    choice: Choice,
     root: bool,
 }
 
 impl Backend {
-    fn of(sys: &dyn Sys) -> Backend {
-        Backend { paru: sys.has("paru"), root: sys.is_root() }
+    /// The tool for this run; a setting that can't be followed is said on stderr.
+    fn of(sys: &mut dyn Sys) -> Backend {
+        let setting = sys.helper_setting();
+        let (choice, warning) = helper::choose(setting.as_ref().map(|(v, s)| (v.as_str(), s.as_str())), |p| sys.has(p));
+        if let Some(warning) = warning {
+            sys.err(&warning);
+        }
+        Backend { choice, root: sys.is_root() }
     }
 
-    /// An operation that changes the system: `paru <op>`, else `sudo pacman <op>` (`pacman` as root).
+    /// An operation that changes the system: `<helper> <op>`, else `sudo pacman <op>` (`pacman` as root).
     fn writes(&self, op: &str, args: &[OsString]) -> Vec<OsString> {
-        let tool: &[&str] = if self.paru {
-            &["paru", op]
-        } else if self.root {
-            &["pacman", op]
-        } else {
-            &["sudo", "pacman", op]
+        let tool: &[&str] = match self.choice.helper {
+            Some(helper) => &[helper, op],
+            None if self.root => &["pacman", op],
+            None => &["sudo", "pacman", op],
         };
         with_args(tool, args)
     }
 
-    /// A query: `paru <op>`, else `pacman <op>`.
+    /// A query: `<helper> <op>`, else `pacman <op>`.
     fn reads(&self, op: &str, args: &[OsString]) -> Vec<OsString> {
-        with_args(&[if self.paru { "paru" } else { "pacman" }, op], args)
+        with_args(&[self.choice.helper.unwrap_or("pacman"), op], args)
     }
 }
 
@@ -79,10 +87,14 @@ fn stopped(sys: &dyn Sys, code: i32) -> bool {
     INTERRUPTED.contains(&code) || sys.interrupted()
 }
 
-/// Without paru, a search, install or info that found nothing may be an AUR package (not one stopped).
+/// Without a helper, a search, install or info that found nothing may be an AUR package (not one stopped).
 fn note_no_aur(sys: &mut dyn Sys, backend: &Backend, code: i32) {
-    if !backend.paru && code != 0 && !stopped(sys, code) {
-        sys.err("pacu: paru isn't installed, so only the official repos were used (no AUR)");
+    if backend.choice.helper.is_none() && code != 0 && !stopped(sys, code) {
+        sys.err(if backend.choice.pacman_asked {
+            "pacu: the helper is set to pacman, so only the official repos were used (no AUR)"
+        } else {
+            "pacu: no AUR helper (paru, yay or pikaur) is installed, so only the official repos were used (no AUR)"
+        });
     }
 }
 
@@ -121,7 +133,16 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
             return 1;
         }
     }
-    let backend = Backend::of(sys);
+    // Only the subcommands that run the package tool look for it: a setting that can't be followed doesn't
+    // warn on `pacu completions` (run by the shell at every start) or `pacu owns`
+    let backend = if matches!(
+        command.kind,
+        Kind::Maintain | Kind::Owns | Kind::Files | Kind::List | Kind::Aur | Kind::AurAudit | Kind::Completions
+    ) {
+        Backend { choice: Choice { helper: None, pacman_asked: false }, root: false }
+    } else {
+        Backend::of(sys)
+    };
     match command.kind {
         Kind::Upgrade => {
             // flatpak only after the system upgrade went through. A failure includes a Ctrl-C, which pacu
@@ -148,8 +169,8 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
                     return sys.run(&argv([tool, "--list"]));
                 }
             }
-            if backend.paru {
-                sys.run(&argv(["paru", "-Qu"]))
+            if let Some(helper) = backend.choice.helper {
+                sys.run(&argv([helper, "-Qu"]))
             } else if sys.has("checkupdates") {
                 // pacman-contrib: checks against a fresh copy of the databases, without root
                 sys.run(&argv(["checkupdates"]))
@@ -171,7 +192,7 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
         Kind::Remove => sys.run(&backend.writes("-Rns", rest)),
         Kind::Info => {
             let mut code = sys.run(&backend.reads("-Si", rest));
-            if code != 0 && !backend.paru && !stopped(sys, code) {
+            if code != 0 && backend.choice.helper.is_none() && !stopped(sys, code) {
                 // Not in the repos: maybe installed from elsewhere
                 code = sys.run(&with_args(&["pacman", "-Qi"], rest));
             }
@@ -299,6 +320,8 @@ mod tests {
     struct Fake {
         programs: Vec<&'static str>,
         root: bool,
+        /// PACU_HELPER or the config's helper, with where it came from.
+        setting: Option<(&'static str, &'static str)>,
         /// Exit codes by command line ("sudo pacman -S foo"); 0 when missing.
         codes: HashMap<String, i32>,
         /// Captured outputs by command line; a missing one can't start.
@@ -335,6 +358,9 @@ mod tests {
         fn is_root(&self) -> bool {
             self.root
         }
+        fn helper_setting(&self) -> Option<(String, String)> {
+            self.setting.map(|(v, s)| (v.to_string(), s.to_string()))
+        }
         fn interrupted(&self) -> bool {
             self.interrupted
         }
@@ -356,31 +382,64 @@ mod tests {
     }
 
     #[test]
-    fn with_paru_everything_goes_through_it() {
+    fn with_a_helper_everything_goes_through_it() {
         let cases: &[(&[&str], &str)] = &[
-            (&["upgrade"], "paru -Syu"),
-            (&["update"], "paru -Sy"),
-            (&["search", "fire", "fox"], "paru -Ss fire fox"),
-            (&["i", "htop", "--needed"], "paru -S htop --needed"),
-            (&["rm", "htop"], "paru -Rns htop"),
-            (&["info", "htop"], "paru -Si htop"),
-            (&["clean"], "paru -Sc"),
+            (&["upgrade"], "H -Syu"),
+            (&["update"], "H -Sy"),
+            (&["search", "fire", "fox"], "H -Ss fire fox"),
+            (&["i", "htop", "--needed"], "H -S htop --needed"),
+            (&["rm", "htop"], "H -Rns htop"),
+            (&["info", "htop"], "H -Si htop"),
+            (&["clean"], "H -Sc"),
             (&["owns", "/usr/bin/pacman"], "pacman -Qo /usr/bin/pacman"),
             (&["files", "pacman"], "pacman -Ql pacman"),
             (&["list"], "pacman -Qe"),
             (&["aur"], "pacman -Qm"),
-            (&["check"], "paru -Qu"),
+            (&["check"], "H -Qu"),
         ];
-        for (args, expected) in cases {
-            let mut f = with(&["paru"]);
-            assert_eq!(pacu(&mut f, args), 0, "{args:?}");
-            assert_eq!(f.ran, [*expected], "{args:?}");
-            assert_eq!(f.err, "", "{args:?}");
+        for helper in helper::HELPERS {
+            for (args, expected) in cases {
+                let mut f = with(&[helper]);
+                assert_eq!(pacu(&mut f, args), 0, "{helper} {args:?}");
+                assert_eq!(f.ran, [expected.replace("H ", &format!("{helper} "))], "{helper} {args:?}");
+                assert_eq!(f.err, "", "{helper} {args:?}");
+            }
         }
     }
 
     #[test]
-    fn without_paru_pacman_writes_through_sudo_and_reads_without() {
+    fn the_helper_order_and_the_setting() {
+        // auto: paru, then yay, then pikaur
+        let mut f = with(&["pikaur", "yay"]);
+        pacu(&mut f, &["install", "htop"]);
+        assert_eq!(f.ran, ["yay -S htop"]);
+        // The setting wins over the order
+        let mut f = Fake { setting: Some(("pikaur", "PACU_HELPER")), ..with(&["paru", "pikaur"]) };
+        pacu(&mut f, &["install", "htop"]);
+        assert_eq!((f.ran.as_slice(), f.err.as_str()), (&["pikaur -S htop".to_string()][..], ""));
+        // pacman even with a helper installed; a failure then says why there was no AUR
+        let mut f = Fake { setting: Some(("pacman", "~/.config/pacu/config")), ..with(&["paru"]) };
+        f.codes.insert("sudo pacman -S yay".into(), 1);
+        assert_eq!(pacu(&mut f, &["install", "yay"]), 1);
+        assert_eq!(f.ran, ["sudo pacman -S yay"]);
+        assert!(f.err.contains("the helper is set to pacman"), "{}", f.err);
+        // A chosen helper that isn't installed: a warning, then auto
+        let mut f = Fake { setting: Some(("yay", "PACU_HELPER")), ..with(&["paru"]) };
+        pacu(&mut f, &["search", "htop"]);
+        assert_eq!(f.ran, ["paru -Ss htop"]);
+        assert_eq!(f.err, "pacu: yay (set in PACU_HELPER) isn't installed; using paru\n");
+        // The subcommands that don't run the package tool don't look for it (and don't warn)
+        let mut f = Fake { setting: Some(("aura", "PACU_HELPER")), ..with(&[]) };
+        for args in [&["--help"][..], &["--version"], &["completions", "bash"], &["owns", "/x"], &["list"], &["aur"]] {
+            pacu(&mut f, args);
+        }
+        assert_eq!(f.err, "");
+        pacu(&mut f, &["check"]);
+        assert!(f.err.starts_with("pacu: unknown helper \"aura\""), "{}", f.err);
+    }
+
+    #[test]
+    fn without_a_helper_pacman_writes_through_sudo_and_reads_without() {
         let cases: &[(&[&str], &str)] = &[
             (&["up"], "sudo pacman -Syu"),
             (&["refresh"], "sudo pacman -Sy"),
@@ -407,11 +466,11 @@ mod tests {
     }
 
     #[test]
-    fn without_paru_a_package_not_found_mentions_the_aur() {
+    fn without_a_helper_a_package_not_found_mentions_the_aur() {
         let mut f = with(&[]);
         f.codes.insert("sudo pacman -S yay".into(), 1);
         assert_eq!(pacu(&mut f, &["install", "yay"]), 1);
-        assert!(f.err.contains("no AUR"));
+        assert!(f.err.contains("no AUR helper (paru, yay or pikaur) is installed"), "{}", f.err);
         // Found: no note
         let mut f = with(&[]);
         pacu(&mut f, &["search", "htop"]);

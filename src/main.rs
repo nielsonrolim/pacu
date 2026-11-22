@@ -1,8 +1,9 @@
-//! pacu: a smaller, friendlier surface over paru and pacman. Every command runs as an argument vector,
+//! pacu: a smaller, friendlier surface over an AUR helper (paru, yay or pikaur) and pacman. Every command runs as an argument vector,
 //! never through a shell.
 mod audit;
 mod commands;
 mod completions;
+mod helper;
 mod pacu;
 
 use std::ffi::OsString;
@@ -113,6 +114,16 @@ impl pacu::Sys for System {
     fn is_root(&self) -> bool {
         // SAFETY: geteuid has no preconditions and can't fail
         unsafe { libc::geteuid() == 0 }
+    }
+
+    fn helper_setting(&self) -> Option<(String, String)> {
+        if let Some(value) = std::env::var_os(helper::ENV) {
+            return Some((value.to_string_lossy().trim().to_string(), helper::ENV.to_string()));
+        }
+        let path = helper::config_path(std::env::var_os("XDG_CONFIG_HOME"), std::env::var_os("HOME"))?;
+        // A missing or unreadable file is auto
+        let text = std::fs::read_to_string(&path).ok()?;
+        Some((helper::parse_config(&text)?, path.display().to_string()))
     }
 
     fn interrupted(&self) -> bool {

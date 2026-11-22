@@ -4,7 +4,7 @@
 pkgname=pacu
 pkgver=0.1.1
 pkgrel=1
-pkgdesc="A small package-management wrapper around paru/pacman for Arch and derivatives"
+pkgdesc="A small package-management wrapper around an AUR helper (paru, yay or pikaur) and pacman for Arch and derivatives"
 arch=(x86_64 aarch64)
 url="https://github.com/nielsonrolim/pacu"
 license=(Apache-2.0)
@@ -15,12 +15,14 @@ provides=("paku=$pkgver")
 # libgcc and glibc: what the binary links (namcap); pacman: what it runs
 depends=(glibc libgcc pacman)
 makedepends=(cargo)
-optdepends=('paru: AUR packages (search, install, upgrade)'
-            'sudo: install, remove and upgrade without paru'
+optdepends=('paru: AUR packages (search, install, upgrade), the first helper pacu looks for'
+            'yay: AUR packages, when paru is missing or with helper = yay'
+            'pikaur: AUR packages, when paru and yay are missing or with helper = pikaur'
+            'sudo: install, remove and upgrade without an AUR helper'
             'flatpak: pacu upgrade also upgrades the Flatpaks'
             'cachy-update: pacu maintain and pacu check'
             'curl: pacu aur-audit'
-            'pacman-contrib: pacu check without paru (checkupdates)')
+            'pacman-contrib: pacu check without an AUR helper (checkupdates)')
 source=("$pkgname-$pkgver.tar.xz")
 sha256sums=('SKIP')
 
