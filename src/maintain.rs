@@ -38,15 +38,21 @@ const DISPLAY_MANAGERS: &[&str] = &[
     "lemurs.service",
 ];
 
-/// What would end the session or the network in the middle of the run (also dbus* and user@*): never
-/// restarted here, only named.
+/// What would end the session or the network in the middle of the run (also the units starting with
+/// KEEP_PREFIXES): never restarted here, only named.
 const SESSION_AND_NETWORK: &[&str] = &[
     "systemd-logind.service",
+    "systemd-user-sessions.service",
+    "console-getty.service",
     "NetworkManager.service",
     "systemd-networkd.service",
     "iwd.service",
     "wpa_supplicant.service",
 ];
+
+/// D-Bus, the user managers and the logins on terminals (restarting getty@ttyN ends the login of whoever runs
+/// paku there).
+const KEEP_PREFIXES: &[&str] = &["dbus", "user@", "getty@", "serial-getty@", "container-getty@"];
 
 /// The journal size from which the flow mentions it.
 const JOURNAL_WARN_BYTES: f64 = 1024.0 * 1024.0 * 1024.0;
@@ -69,6 +75,17 @@ fn options(args: &[OsString]) -> Option<Options> {
         }
     }
     Some(o)
+}
+
+/// How the upgrade step went.
+#[derive(Debug, PartialEq, Eq)]
+enum Upgrade {
+    /// Done (or nothing to do); `changed` when packages were upgraded.
+    Done { changed: bool },
+    /// Answered no, or only listed.
+    Skipped,
+    /// The system upgrade failed.
+    Failed,
 }
 
 /// A Ctrl-C: the flow stops at once.
@@ -124,11 +141,20 @@ impl Flow<'_> {
     fn steps(&mut self, o: &Options) -> Step {
         let (pending, known) = self.pending()?;
         let newest_news = self.news()?;
-        let (went_through, changed) = self.upgrade(&pending, known, o)?;
+        let upgrade = self.upgrade(&pending, known, o)?;
         // The news count as seen only once shown and followed by the upgrade
-        if let (Some(id), true, false) = (newest_news, went_through, self.listing) {
+        if let (Some(id), Upgrade::Done { .. }, false) = (newest_news, &upgrade, self.listing) {
             self.sys.save_last_news(&id);
         }
+        if upgrade == Upgrade::Failed {
+            // The databases are synced but the packages aren't: a partial upgrade, where removing orphans or
+            // cached packages is the risky case. Only the information steps
+            self.title("Maintenance");
+            self.note("skipped: the upgrade failed; fix it and run paku maintain again");
+            self.failed_units()?;
+            return self.journal();
+        }
+        let changed = upgrade == Upgrade::Done { changed: true };
         self.orphans()?;
         if !o.no_flatpak {
             self.flatpak_unused()?;
@@ -305,8 +331,8 @@ impl Flow<'_> {
         Ok(Some(newest))
     }
 
-    /// The upgrade (packages, then Flatpak); gives whether it went through and whether packages changed.
-    fn upgrade(&mut self, pending: &[String], known: bool, o: &Options) -> Step<(bool, bool)> {
+    /// The upgrade (packages, then Flatpak).
+    fn upgrade(&mut self, pending: &[String], known: bool, o: &Options) -> Step<Upgrade> {
         self.title("Upgrade");
         let devel: Vec<OsString> = match (o.devel, self.backend.choice.helper) {
             (true, Some(_)) => argv(["--devel"]),
@@ -317,7 +343,7 @@ impl Flow<'_> {
         let packages = !pending.is_empty() || !known;
         if !packages && flatpak.is_none() {
             self.note("nothing to upgrade");
-            return Ok((true, false));
+            return Ok(Upgrade::Done { changed: false });
         }
         if self.listing {
             if packages {
@@ -326,18 +352,18 @@ impl Flow<'_> {
             if let Some(line) = &flatpak {
                 self.would(line);
             }
-            return Ok((false, false));
+            return Ok(Upgrade::Skipped);
         }
         let mut changed = false;
         if packages {
             if !self.ask("Proceed with the upgrade?", true)? {
                 self.note("the upgrade was skipped");
-                return Ok((false, false));
+                return Ok(Upgrade::Skipped);
             }
             let code = self.sys.run(&system);
             if !self.ran("upgrade", code)? {
                 // Flatpak only after the system went through, as in `paku upgrade`
-                return Ok((false, false));
+                return Ok(Upgrade::Failed);
             }
             changed = true;
         }
@@ -346,7 +372,7 @@ impl Flow<'_> {
             let code = self.sys.run(&line);
             self.ran("flatpak", code)?;
         }
-        Ok((true, changed))
+        Ok(Upgrade::Done { changed })
     }
 
     fn orphans(&mut self) -> Step {
@@ -371,28 +397,13 @@ impl Flow<'_> {
             return Ok(());
         }
         self.title("Unused Flatpak runtimes");
-        // With no input, flatpak lists them ("  1. org.gnome.Platform …") and its own question gets no answer
-        let text =
-            self.capture(argv(["flatpak", "uninstall", "--unused"]))?.map(|(_, d)| lines(&d)).unwrap_or_default();
-        let unused: Vec<String> = text
-            .iter()
-            .filter_map(|l| {
-                let mut words = l.split_whitespace();
-                let number = words.next()?;
-                let ok =
-                    number.strip_suffix('.').is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
-                ok.then(|| words.next())
-                    .flatten()
-                    .map(|w| w.chars().map(|c| if c.is_control() { '?' } else { c }).collect())
-            })
-            .collect();
-        if unused.is_empty() {
-            self.note("none");
-            return Ok(());
-        }
-        self.show(&unused);
-        // flatpak asks again before removing
-        self.confirm("flatpak-unused", "Remove them?", vec![argv(["flatpak", "uninstall", "--unused"])])
+        // flatpak has no command that only lists them, and its uninstall can't be run just to look: once we get
+        // a yes, it lists them and asks itself (or says there are none)
+        self.confirm(
+            "flatpak-unused",
+            "Look for unused Flatpak runtimes? flatpak lists them and asks before removing",
+            vec![argv(["flatpak", "uninstall", "--unused"])],
+        )
     }
 
     /// The count paccache gives in a dry run ("==> finished dry run: 4 candidates (disk space saved: …)").
@@ -517,8 +528,7 @@ impl Flow<'_> {
             }
             let keep = DISPLAY_MANAGERS.contains(&unit)
                 || SESSION_AND_NETWORK.contains(&unit)
-                || unit.starts_with("dbus")
-                || unit.starts_with("user@");
+                || KEEP_PREFIXES.iter().any(|p| unit.starts_with(p));
             let list = if keep { &mut kept } else { &mut restart };
             if !list.iter().any(|u| u == unit) {
                 list.push(unit.to_string());
@@ -602,10 +612,6 @@ mod tests {
         o.insert("paru -Qua".into(), (0, "foo-git 1 -> 2\n".into()));
         o.insert(CURL.into(), (0, FEED.into()));
         o.insert("pacman -Qdtq".into(), (0, "orphan1\norphan2\n".into()));
-        o.insert(
-            "flatpak uninstall --unused".into(),
-            (0, "        ID                    Branch\n 1.     org.gnome.Platform    48\n\nProceed? [Y/n]: ".into()),
-        );
         o.insert("paccache -dk3".into(), (0, "==> finished dry run: 4 candidates (disk space saved: 1 GiB)\n".into()));
         o.insert("paccache -duk0".into(), (0, "==> no candidate packages found for pruning\n".into()));
         o.insert("pacdiff -o".into(), (0, "/etc/pacman.conf.pacnew\n".into()));
@@ -620,7 +626,7 @@ mod tests {
             (
                 0,
                 "Found 3 processes\nsystemctl restart 'cups.service'\nsystemctl restart 'dbus-broker.service'\n\
-                 systemctl restart 'NetworkManager.service'\n"
+                 systemctl restart 'NetworkManager.service'\nsystemctl restart 'getty@tty2.service'\n"
                     .into(),
             ),
         );
@@ -642,7 +648,7 @@ mod tests {
         assert!(ran.contains(&"paru -Syu"));
         assert!(ran.contains(&"flatpak update"));
         assert!(ran.contains(&"sudo pacman -Rns orphan1 orphan2"));
-        assert_eq!(ran.iter().filter(|l| **l == "flatpak uninstall --unused").count(), 2);
+        assert!(ran.contains(&"flatpak uninstall --unused"));
         assert!(ran.contains(&"sudo paccache -rk3"));
         assert!(!ran.contains(&"sudo paccache -ruk0"), "nothing uninstalled to prune");
         assert!(ran.contains(&"paru -Sc"));
@@ -663,7 +669,8 @@ mod tests {
         assert!(f.out.contains("foo.service (system): see systemctl status foo.service"));
         assert!(f.out.contains("takes 1.5G"));
         assert!(f.out.contains(
-            "not restarted here (they'd end the session or the network): dbus-broker.service NetworkManager.service"
+            "not restarted here (they'd end the session or the network): dbus-broker.service NetworkManager.service \
+             getty@tty2.service"
         ));
         assert!(f.out.ends_with("paku maintain: done\n"), "{}", f.out);
         assert!(f.ran.iter().all(|l| !l.contains("--noconfirm")));
@@ -706,6 +713,7 @@ mod tests {
             assert!(f.out.contains("would run: paru -Syu"));
             assert!(f.out.contains("would run: sudo pacman -Rns orphan1 orphan2"));
             assert!(f.out.contains("would run: pacdiff --sudo"));
+            assert!(f.out.contains("would run: flatpak uninstall --unused"));
             assert!(f.out.ends_with("paku maintain: done (listing only, nothing was changed)\n"), "{}", f.out);
             assert_eq!(f.saved_news, None);
             assert_eq!(f.out.contains("no terminal"), !tty);
@@ -755,14 +763,19 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_upgrade_skips_flatpak_services_and_the_news() {
+    fn a_failed_upgrade_leaves_only_the_information_steps() {
         let mut f = busy(ALL);
         f.codes.insert("paru -Syu".into(), 1);
-        // upgrade, orphans, flatpak, cache, paru -Sc, pacdiff, reboot (no services)
-        f.answers = vec![true, false, false, false, false, false, false];
+        f.answers = vec![true];
         assert_eq!(paku(&mut f, &["maintain"]), 2);
-        assert!(!f.ran.contains(&"flatpak update".to_string()));
-        assert!(f.ran.iter().all(|l| !l.contains("checkservices")));
+        assert_eq!(f.asked.len(), 1, "{:?}", f.asked);
+        for step in ["flatpak", "pacman -Qdtq", "paccache", "pacdiff", "checkservices", "uname"] {
+            assert!(f.ran.iter().all(|l| !l.contains(step)), "{step}: {:?}", f.ran);
+        }
+        assert!(f.out.contains("skipped: the upgrade failed"));
+        assert!(f.out.contains("foo.service (system)"));
+        assert!(f.out.contains("takes 1.5G"));
+        assert!(f.out.ends_with("paku maintain: done, 1 step failed (upgrade)\n"), "{}", f.out);
         assert_eq!(f.saved_news, None);
     }
 

@@ -63,7 +63,8 @@ fn decode(text: &str) -> String {
     while let Some(amp) = rest.find('&') {
         out.push_str(&rest[..amp]);
         rest = &rest[amp..];
-        let Some(semi) = rest[..rest.len().min(12)].find(';') else {
+        // By bytes, but `get` gives None instead of a panic when byte 12 falls inside a character
+        let Some(semi) = rest.get(..12).unwrap_or(rest).find(';') else {
             out.push('&');
             rest = &rest[1..];
             continue;
@@ -97,9 +98,19 @@ fn decode(text: &str) -> String {
     out
 }
 
-/// One line for the terminal: control characters (ESC included) become "?", runs of whitespace one space.
+/// One line for the terminal: control characters (ESC included) and the invisible format characters that can
+/// reorder or hide text (zero-width, bidirectional marks and overrides) become "?", runs of whitespace one
+/// space.
 fn clean(text: &str) -> String {
-    let mapped: String = text.chars().map(|c| if c.is_control() && c != '\n' && c != '\t' { '?' } else { c }).collect();
+    let mapped: String = text
+        .chars()
+        .map(|c| match c {
+            '\n' | '\t' => c,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}' => '?',
+            _ if c.is_control() => '?',
+            _ => c,
+        })
+        .collect();
     mapped.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -130,6 +141,8 @@ mod tests {
         // &#27; and &#x1b; are ESC: shown as "?"
         assert_eq!(items[2].title, "Evil ?[31mred?[0m");
         assert!(!items[2].title.chars().any(|c| c.is_control()));
+        // Bidirectional overrides and zero-width characters can't reverse or hide a title
+        assert_eq!(clean("a\u{202E}b\u{200B}c\u{2066}d\u{FEFF}"), "a?b?c?d?");
         assert_eq!(items[2].link, None);
         assert_eq!(items[2].id, "https://evil.example/x");
     }
@@ -139,8 +152,13 @@ mod tests {
         for text in ["", "<html>Bad gateway</html>", "<rss><item><link>x</link></item></rss>", "<rss><item><title>"] {
             assert!(parse(text).is_empty(), "{text:?}");
         }
-        // A broken entity doesn't panic
+        // A broken entity doesn't panic, nor an `&` without `;` followed by a multibyte character at byte 12
         assert_eq!(decode("a & b &#xZZ; &#99999999; &unknown;"), "a & b &#xZZ; &#99999999; &unknown;");
+        assert_eq!(decode("A &aaaaaaaaaaç b"), "A &aaaaaaaaaaç b");
+        for n in 0..16 {
+            let text = format!("&{}çé€ &amp; x", "a".repeat(n));
+            let _ = decode(&text);
+        }
     }
 
     #[test]

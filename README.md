@@ -128,16 +128,16 @@ With [`cachy-update`](https://github.com/CachyOS/cachy-update) installed, it run
 2. the Arch Linux news not shown before (titles and links from the RSS feed, with `curl`);
 3. the upgrade, after a `[Y/n]`: as `paku upgrade`, then `flatpak update`;
 4. orphans (`sudo pacman -Rns`);
-5. unused Flatpak runtimes (`flatpak uninstall --unused`);
+5. unused Flatpak runtimes (`flatpak uninstall --unused`, which lists them and asks again);
 6. the package cache (`sudo paccache -rk3` and `-ruk0`), then the helper's own caches (`paru -Sc`);
 7. `.pacnew` and `.pacsave` files (`pacdiff --sudo`, so `$DIFFPROG` runs as you);
 8. failed system and user units, and the journal size when over 1 GiB, as information only;
-9. after an upgrade, the services running old libraries (`checkservices`), restarted all or none; the display managers, D-Bus, logind, the network services and `user@` units are only named, never restarted;
+9. after an upgrade, the services running old libraries (`checkservices`), restarted all or none; the display managers, D-Bus, logind, the network services, the gettys and `user@` units are only named, never restarted;
 10. when the running kernel is no longer installed, an offer to reboot.
 
 Steps 4 to 10 ask `[y/N]`: a plain Enter keeps everything. A step whose tool is missing (`curl`, `flatpak`, `pacman-contrib`) is skipped with a note. Without a terminal, or with `--dry-run`, every step only lists what it would do, the upgrade included. `--no-flatpak` leaves Flatpak out, and `--devel` is passed to the helper. paku never passes `--noconfirm`.
 
-The last line says how it went: `paku maintain: done`, `paku maintain: done, 1 step failed (orphans)` or `paku maintain: stopped (Ctrl-C)`. Exit codes: 0 done (including steps skipped or answered no), 1 bad usage, 2 a step failed (the next steps still ran), 17 another `paku maintain` is running, 130 Ctrl-C (which stops the flow at once). With `cachy-update`, its own codes.
+The last line says how it went: `paku maintain: done`, `paku maintain: done, 1 step failed (orphans)` or `paku maintain: stopped (Ctrl-C)`. Exit codes: 0 done (including steps skipped or answered no), 1 bad usage, 2 a step failed (the next steps still ran), 17 another `paku maintain` is running, 130 Ctrl-C (which stops the flow at once; at a question, paku ends by the signal, which the shell also reports as 130). When the upgrade fails, the steps that remove or restart something are skipped, and only the information steps run. With `cachy-update`, its own codes.
 
 The flow follows [arch-update](https://github.com/Antiz96/arch-update)'s (version 4.4.7) and is reimplemented here: no code of it is used. It differs in the defaults (arch-update asks `[Y/n]` before cleaning the cache and merging `.pacnew` files) and in the information steps (failed units and the journal).
 

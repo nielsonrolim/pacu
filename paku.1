@@ -215,7 +215,9 @@ exits 1 when an installed package is on the list or the list can't be fetched.
 (its own flow) exits 0 when done, steps skipped or answered no included; 1 on bad usage; 2 when a step
 failed (the next steps still ran); 17 when another
 .B paku maintain
-is running; 130 on Ctrl\-C, which stops the flow at once.
+is running; 130 on Ctrl\-C during a command, which stops the flow at once (a Ctrl\-C at a question ends paku
+by the signal, which a shell also reports as 130).
+When the upgrade fails, the steps that remove or restart something are skipped; the information steps still run.
 .SH SEE ALSO
 .BR paru (8),
 .BR yay (8),
