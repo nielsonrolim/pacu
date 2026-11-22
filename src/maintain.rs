@@ -510,15 +510,12 @@ impl Flow<'_> {
             return Ok(());
         }
         let ignored = self.session_units()?;
-        // -R: only list (paku restarts them itself, after its own y/N; never -a), -P: no pacdiff (its own step
-        // ran), -F: no failed list (its own step too)
-        let mut words: Vec<String> = ["checkservices", "-F", "-P", "-R"].map(String::from).to_vec();
-        for unit in &ignored {
-            words.extend(["-i".to_string(), unit.clone()]);
-        }
+        // -R: only list (it restarts nothing; paku restarts what's left after its own y/N; never -a), -P: no
+        // pacdiff (its own step ran), -F: no failed list (its own step too). No -i: the units kept running are
+        // filtered here, so they can still be named (with a reboot hint) instead of disappearing
+        let words = ["checkservices", "-F", "-P", "-R"];
         // sudo -n: a question for the password would be hidden in the captured output
-        let line =
-            if self.backend.root { argv(&words) } else { argv(["sudo", "-n"].map(String::from).iter().chain(&words)) };
+        let line = if self.backend.root { argv(words) } else { argv(["sudo", "-n"].iter().chain(&words)) };
         let output = match self.capture(line)? {
             Some((0, data)) => lines(&data),
             _ => {
@@ -542,7 +539,11 @@ impl Flow<'_> {
             }
         }
         if !kept.is_empty() {
-            self.note(&format!("not restarted here (they'd end the session or the network): {}", kept.join(" ")));
+            self.note(&format!(
+                "not restarted here (they'd end the session or the network): {}; they still run the old files until \
+                 you restart them yourself or reboot",
+                kept.join(" ")
+            ));
         }
         if restart.is_empty() {
             self.note("none");
@@ -630,9 +631,7 @@ mod tests {
     const CURL: &str =
         "curl -fsS --proto =https --proto-redir =https --max-filesize 1M -m 10 https://archlinux.org/feeds/news/";
 
-    const CHECKSERVICES: &str = "checkservices -F -P -R -i gdm.service -i plasmalogin.service -i sddm.service \
-        -i lightdm.service -i lxdm.service -i slim.service -i xdm.service -i greetd.service -i nodm.service \
-        -i ly.service -i lemurs.service -i display-manager.service -i sshd.service";
+    const CHECKSERVICES: &str = "checkservices -F -P -R";
 
     /// A system with everything to do: updates, news, orphans, unused Flatpaks, cache, a .pacnew, a failed
     /// unit, a big journal, services to restart and a new kernel.
@@ -674,39 +673,49 @@ mod tests {
     const ALIAS: &str = "systemctl show -p Id --value display-manager.service";
     const SESSION: &str = "loginctl show-session auto -p Service --value";
 
+    const ALL: &[&str] =
+        &["paru", "checkupdates", "fakeroot", "curl", "flatpak", "paccache", "pacdiff", "checkservices", "journalctl"];
+
     #[test]
-    fn the_display_manager_and_the_session_are_never_offered() {
+    fn the_display_manager_and_the_session_are_named_never_restarted() {
         let mut f = busy(ALL);
         // A display manager not in the list, behind the alias, and a session started by it
         f.outputs.insert(ALIAS.into(), (0, "mydm.service\n".into()));
         f.outputs.insert(SESSION.into(), (0, "mydm-greeter\n".into()));
-        let line = format!(
-            "sudo -n {} -i display-manager.service -i mydm.service -i mydm-greeter.service",
-            CHECKSERVICES.trim_end_matches(" -i display-manager.service -i sshd.service")
-        );
         f.outputs.insert(
-            line.clone(),
-            (0, "systemctl restart 'mydm.service'\nsystemctl restart 'mydm-greeter.service'\nsystemctl restart 'cups.service'\n".into()),
+            format!("sudo -n {CHECKSERVICES}"),
+            (
+                0,
+                "systemctl restart 'mydm.service'\nsystemctl restart 'mydm-greeter.service'\n\
+                 systemctl restart 'greetd.service'\nsystemctl restart 'cups.service'\n"
+                    .into(),
+            ),
         );
         f.answers = vec![true; 8];
         assert_eq!(paku(&mut f, &["maintain"]), 0);
-        assert!(f.ran.contains(&line), "{:?}", f.ran);
-        assert!(f.ran.contains(&"sudo systemctl restart -- cups.service".to_string()));
-        assert!(f.ran.iter().all(|l| !l.contains("restart -- mydm")), "{:?}", f.ran);
-        // checkservices never restarts nor answers itself
-        assert!(f.ran.iter().filter(|l| l.contains("checkservices")).all(|l| l.contains(" -R ") && !l.contains(" -a")));
-        // A value that isn't a unit name is left out
+        assert!(f.ran.contains(&"sudo systemctl restart -- cups.service".to_string()), "{:?}", f.ran);
+        assert!(f.ran.iter().all(|l| !l.contains("restart -- mydm") && !l.contains("greetd")), "{:?}", f.ran);
+        assert!(
+            f.out.contains(
+                "not restarted here (they'd end the session or the network): mydm.service mydm-greeter.service \
+                 greetd.service; they still run the old files"
+            ),
+            "{}",
+            f.out
+        );
+        // checkservices only lists: never restarts nor answers itself
+        let check: Vec<&String> = f.ran.iter().filter(|l| l.contains("checkservices")).collect();
+        assert_eq!(check, [&format!("sudo -n {CHECKSERVICES}")]);
+        // Values that aren't unit names don't count
         let mut f = busy(ALL);
         f.outputs.insert(ALIAS.into(), (0, "-x.service\n".into()));
         f.outputs.insert(SESSION.into(), (0, "a b;c\n".into()));
+        f.outputs.insert(format!("sudo -n {CHECKSERVICES}"), (0, "systemctl restart 'cups.service'\n".into()));
         f.answers = vec![true; 8];
         paku(&mut f, &["maintain"]);
-        let check = f.ran.iter().find(|l| l.contains("checkservices")).unwrap();
-        assert!(check.ends_with("-i display-manager.service"), "{check}");
+        assert!(f.ran.contains(&"sudo systemctl restart -- cups.service".to_string()));
+        assert!(!f.out.contains("not restarted here"), "{}", f.out);
     }
-
-    const ALL: &[&str] =
-        &["paru", "checkupdates", "fakeroot", "curl", "flatpak", "paccache", "pacdiff", "checkservices", "journalctl"];
 
     #[test]
     fn every_step_with_yes() {
