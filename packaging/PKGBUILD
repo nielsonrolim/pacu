@@ -11,9 +11,9 @@ license=(Apache-2.0)
 # 0.1.0 was published as paku: pacman -Syu replaces it with pacu
 replaces=(paku)
 conflicts=(paku)
-# swaydesk-pacu: the name Swaydesk depends on. BlackArch has an unrelated pacu (with an epoch, so always
-# "newer"); a depends on plain pacu could take theirs from a repository above ours, this name can't
-provides=("paku=$pkgver" "swaydesk-pacu=$pkgver")
+# pacu-wrapper: the name to depend on (Swaydesk does). BlackArch has an unrelated pacu (with an epoch, so
+# always "newer"); a depends on plain pacu could take theirs from a repository above ours, this name can't
+provides=("paku=$pkgver" "pacu-wrapper=$pkgver")
 # libgcc and glibc: what the binary links (namcap); pacman: what it runs
 depends=(glibc libgcc pacman)
 makedepends=(cargo)

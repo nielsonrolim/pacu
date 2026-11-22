@@ -10,9 +10,9 @@ fn array(name: &str) -> Vec<String> {
 }
 
 #[test]
-fn swaydesk_depends_on_a_name_only_this_package_provides() {
-    // swaydesk-desktop depends on swaydesk-pacu: BlackArch's pacu has an epoch and would win a plain pacu
-    assert!(array("provides").contains(&"swaydesk-pacu=$pkgver".to_string()), "{:?}", array("provides"));
+fn dependents_get_a_name_only_this_package_provides() {
+    // Swaydesk's swaydesk-desktop depends on pacu-wrapper: BlackArch's pacu has an epoch and would win a plain pacu
+    assert!(array("provides").contains(&"pacu-wrapper=$pkgver".to_string()), "{:?}", array("provides"));
 }
 
 #[test]
