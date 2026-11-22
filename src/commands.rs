@@ -20,6 +20,7 @@ pub enum Kind {
     Clean,
     Autoremove,
     Completions,
+    Helper,
 }
 
 /// What the shells complete after the subcommand.
@@ -37,6 +38,8 @@ pub enum Complete {
     Paths,
     /// The flags `maintain` passes on to cachy-update / arch-update.
     MaintainFlags,
+    /// The flags of `upgrade` (`--no-flatpak`).
+    UpgradeFlags,
     /// The shells `completions` knows.
     Shells,
 }
@@ -69,10 +72,10 @@ pub const COMMANDS: &[Command] = &[
         name: "upgrade",
         aliases: &["up"],
         usage: "upgrade",
-        help: "paru -Syu (and flatpak upgrade if available)",
+        help: "paru -Syu (and flatpak upgrade if available, unless --no-flatpak)",
         needs_args: None,
         description: "Upgrade system (paru -Syu and flatpak upgrade if available)",
-        complete: Complete::Nothing,
+        complete: Complete::UpgradeFlags,
     },
     Command {
         kind: Kind::Maintain,
@@ -224,7 +227,23 @@ pub const COMMANDS: &[Command] = &[
         description: "Print the shell completions (bash, zsh or fish)",
         complete: Complete::Shells,
     },
+    Command {
+        kind: Kind::Helper,
+        name: "helper",
+        aliases: &[],
+        usage: "helper",
+        help: "print the tool paku uses: paru, yay, pikaur or pacman",
+        needs_args: None,
+        description: "Print the package tool paku uses (paru, yay, pikaur or pacman)",
+        complete: Complete::Nothing,
+    },
 ];
+
+/// The flags of `paku upgrade`, with their descriptions.
+pub const UPGRADE_FLAGS: &[(&str, &str)] = &[("--no-flatpak", "Only the system upgrade, without flatpak upgrade")];
+
+/// What `paku upgrade` prints (exit 1) for an argument it doesn't take.
+pub const UPGRADE_USAGE: &str = "paku upgrade [--no-flatpak]";
 
 /// The flags of cachy-update / arch-update that `maintain` completes, with their descriptions.
 pub const MAINTAIN_FLAGS: &[(&str, &str)] = &[
@@ -273,9 +292,10 @@ mod tests {
 
     #[test]
     fn the_help_is_the_one_of_the_fish_function() {
-        // The help of the fish function pak (functions/pak.fish), with the new name and the completions line
+        // The help of the fish function pak (functions/pak.fish), with the new name, the completions and helper
+        // lines and the --no-flatpak note
         let fish = "Usage:
-  paku upgrade             # paru -Syu (and flatpak upgrade if available)
+  paku upgrade             # paru -Syu (and flatpak upgrade if available, unless --no-flatpak)
   paku maintain [args]     # full Cachy-Update maintenance run (cachy-update)
   paku check               # list pending updates without applying them
   paku update              # paru -Sy (refresh package DB only)
@@ -291,6 +311,7 @@ mod tests {
   paku clean               # paru -Sc
   paku autoremove          # remove orphaned packages
   paku completions <shell> # print the bash, zsh or fish completions
+  paku helper              # print the tool paku uses: paru, yay, pikaur or pacman
 ";
         assert_eq!(help(), fish);
     }
@@ -300,7 +321,7 @@ mod tests {
         for c in COMMANDS {
             assert_eq!(
                 c.needs_args.is_some(),
-                c.complete != Complete::Nothing && c.complete != Complete::MaintainFlags,
+                !matches!(c.complete, Complete::Nothing | Complete::MaintainFlags | Complete::UpgradeFlags),
                 "{}",
                 c.name
             );

@@ -145,11 +145,19 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
     };
     match command.kind {
         Kind::Upgrade => {
+            let flatpak = match rest.iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().as_slice() {
+                [] => true,
+                [only] if only == "--no-flatpak" => false,
+                _ => {
+                    sys.out(&format!("{}\n", commands::UPGRADE_USAGE));
+                    return 1;
+                }
+            };
             // flatpak only after the system upgrade went through. A failure includes a Ctrl-C, which paku
             // often can't see: sudo (use_pty, the default since 1.9.14) passes it to pacman in its own pty, and
             // paru then exits 1
             let code = sys.run(&backend.writes("-Syu", &[]));
-            if code != 0 || !sys.has("flatpak") {
+            if code != 0 || !flatpak || !sys.has("flatpak") {
                 return code;
             }
             sys.run(&argv(["flatpak", "upgrade"]))
@@ -216,6 +224,10 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
             }
             let orphans: Vec<OsString> = orphans.into_iter().map(OsString::from).collect();
             sys.run(&backend.writes("-Rns", &orphans))
+        }
+        Kind::Helper => {
+            sys.out(&format!("{}\n", backend.choice.helper.unwrap_or("pacman")));
+            0
         }
         Kind::Completions => match completions::script(&rest[0].to_string_lossy()) {
             Some(script) => {
@@ -555,6 +567,47 @@ mod tests {
         let mut f = with(&["paru", "flatpak"]);
         f.codes.insert("flatpak upgrade".into(), 3);
         assert_eq!(paku(&mut f, &["upgrade"]), 3);
+    }
+
+    #[test]
+    fn upgrade_without_flatpak() {
+        let mut f = with(&["paru", "flatpak"]);
+        assert_eq!(paku(&mut f, &["upgrade", "--no-flatpak"]), 0);
+        assert_eq!(f.ran, ["paru -Syu"]);
+        let mut f = with(&["flatpak"]);
+        f.codes.insert("sudo pacman -Syu".into(), 2);
+        assert_eq!(paku(&mut f, &["up", "--no-flatpak"]), 2);
+        assert_eq!(f.ran, ["sudo pacman -Syu"]);
+        // Anything else is a usage error, before anything runs
+        for args in [&["upgrade", "--noflatpak"][..], &["upgrade", "--no-flatpak", "x"], &["upgrade", "htop"]] {
+            let mut f = with(&["paru", "flatpak"]);
+            assert_eq!(paku(&mut f, args), 1, "{args:?}");
+            assert_eq!(f.out, "paku upgrade [--no-flatpak]\n");
+            assert!(f.ran.is_empty());
+        }
+    }
+
+    #[test]
+    fn helper_prints_the_tool() {
+        for (programs, setting, tool) in [
+            (&["paru", "yay"][..], None, "paru"),
+            (&["yay", "pikaur"][..], None, "yay"),
+            (&["pikaur"][..], None, "pikaur"),
+            (&[][..], None, "pacman"),
+            (&["paru"][..], Some(("pacman", "PAKU_HELPER")), "pacman"),
+            (&["paru", "pikaur"][..], Some(("pikaur", "PAKU_HELPER")), "pikaur"),
+        ] {
+            let mut f = Fake { setting, ..with(programs) };
+            assert_eq!(paku(&mut f, &["helper"]), 0);
+            assert_eq!((f.out.as_str(), f.err.as_str(), f.ran.len()), (format!("{tool}\n").as_str(), "", 0));
+        }
+        // A setting that can't be followed: the warning on stderr, what runs on stdout
+        let mut f = Fake { setting: Some(("yay", "PAKU_HELPER")), ..with(&["paru"]) };
+        assert_eq!(paku(&mut f, &["helper"]), 0);
+        assert_eq!(
+            (f.out.as_str(), f.err.as_str()),
+            ("paru\n", "paku: yay (set in PAKU_HELPER) isn't installed; using paru\n")
+        );
     }
 
     #[test]

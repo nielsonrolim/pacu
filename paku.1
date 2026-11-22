@@ -30,13 +30,16 @@ Commands run directly, never through a shell, and
 exits with their exit code.
 .SH SUBCOMMANDS
 .TP
-.BR upgrade ", " up
+.BR upgrade ", " up " [" \-\-no\-flatpak ]
 .B paru \-Syu
 (or
 .BR "sudo pacman \-Syu" ),
 then
 .B flatpak upgrade
 if flatpak is installed and the system upgrade succeeded.
+With
+.BR \-\-no\-flatpak ,
+only the system upgrade.
 .TP
 .BR maintain ", " cu ", " full ", " full\-upgrade " [" \fIargs\fR ...]
 Runs
@@ -115,6 +118,13 @@ with
 .TP
 .BR completions " " bash | zsh | fish
 Prints the completion script for the shell.
+.TP
+.B helper
+Prints the tool the other subcommands use, as one word:
+.BR paru ", " yay ", " pikaur " or " pacman
+(see
+.BR CONFIGURATION ).
+A setting that can't be followed is warned about on stderr.
 .SH CONFIGURATION
 The helper comes from the
 .B PAKU_HELPER

@@ -34,7 +34,7 @@ The CI (.github/workflows/ci.yml) runs the tests in an `archlinux` container wit
 - The package conflicts only with our old pacu (`pacu<1:0`, epoch 0), never with BlackArch's pacu (epoch 1), and has no `replaces`: a replaces would offer to swap theirs. Swaydesk's swaydesk-desktop depends on `paku>=0.2.0`.
 - Without a helper: pacman with sudo for writes (not as root), official repos only; never install an AUR helper.
 - The helpers get the same pacman operations; one that needs different flags gets its own case in `Backend`, with a test.
-- The help still says `paru` (the help of the fish function); the README and the man page say it stands for the helper in use.
+- The help keeps the fish function's lines (it still says `paru`; the README and the man page say it stands for the helper in use); new subcommands and flags add to it, and the pinning test follows.
 
 ## Runtime assumptions
 

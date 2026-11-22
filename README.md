@@ -9,7 +9,7 @@ paku is the Rust successor of the fish function [pak](https://github.com/nielson
 **pacu is now paku.** The name went from paku (0.1.0) to pacu (0.1.1, 0.1.2) and back to paku in 0.2.0, which no other package uses (BlackArch has an unrelated `pacu`). If you have pacu from the repository, install paku once: `sudo pacman -Sy paku`, and answer `y` when pacman asks to remove pacu. After that, type `paku` instead of `pacu`. BlackArch's `pacu` can stay installed next to paku.
 
 ```sh
-paku upgrade             # paru -Syu (and flatpak upgrade if available)
+paku upgrade             # paru -Syu (and flatpak upgrade if available, unless --no-flatpak)
 paku maintain [args]     # full Cachy-Update maintenance run (cachy-update)
 paku check               # list pending updates without applying them
 paku update              # paru -Sy (refresh package DB only)
@@ -25,6 +25,7 @@ paku aur-audit           # check installed AUR packages against the compromised 
 paku clean               # paru -Sc
 paku autoremove          # remove orphaned packages
 paku completions <shell> # print the bash, zsh or fish completions
+paku helper              # print the tool paku uses: paru, yay, pikaur or pacman
 ```
 
 ## With or without an AUR helper
@@ -59,6 +60,8 @@ helper = "yay"
 ```
 
 `auto` (the default, also with no file) takes the first helper installed: paru, then yay, then pikaur, then pacman. `pacman` uses pacman even when a helper is installed. A chosen helper that isn't installed, or an unknown value, gets a warning on stderr and counts as `auto`. `PAKU_HELPER` wins over the file.
+
+`paku helper` prints the tool paku will use, one word on stdout (`paru`, `yay`, `pikaur` or `pacman`), with the warning on stderr when the setting can't be followed: scripts can show it before running `paku upgrade`.
 
 `paku update` only refreshes the package databases (`-Sy`), as the fish function did. Installing a package right after it, without upgrading, is a partial upgrade, which Arch doesn't support: prefer `paku upgrade`, or `paku check` to see what's pending.
 
@@ -111,7 +114,7 @@ Run `paku` with no arguments for the help summary (it exits 1, like the fish fun
 paku upgrade
 ```
 
-Runs `paru -Syu` (or `sudo pacman -Syu`) and then, if `flatpak` is on your PATH and the system upgrade went through, `flatpak upgrade`. A failed or interrupted system upgrade stops there, with its exit code.
+Runs `paru -Syu` (or `sudo pacman -Syu`) and then, if `flatpak` is on your PATH and the system upgrade went through, `flatpak upgrade`. A failed or interrupted system upgrade stops there, with its exit code. `paku upgrade --no-flatpak` runs only the system upgrade (for a tool that upgrades the Flatpaks itself).
 
 ### Run a full maintenance pass
 
@@ -189,7 +192,7 @@ paku autoremove
 
 ## The name
 
-paku is named after the [paku](https://en.wikipedia.org/wiki/Paku), the South American fish with human-like teeth, and it starts like `pac`man.
+paku is named after the [pacu](https://en.wikipedia.org/wiki/Pacu), the South American fish with human-like teeth, spelled with a k (the logo is still a pacu); it starts like `pac`man. From 0.1.1 to 0.1.2 it was called pacu, which clashed with an unrelated tool of that name.
 
 ## License
 
