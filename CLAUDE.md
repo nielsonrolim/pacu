@@ -12,6 +12,8 @@ pacu: a Rust binary wrapping `paru` (or `pacman` without it) with a smaller, fri
 - `src/audit.rs`: parsing of the AUR compromised list and the match.
 - `src/main.rs`: the real `Sys` (std::process::Command, never a shell; SIGINT/SIGQUIT ignored while a child runs, reset in the child).
 - `pacu.1`: the man page, by hand.
+- `tests/packaging.rs`: the PKGBUILD promises (provides `pacu-wrapper` and the paku upgrade path; pkgver = the crate's version).
+- `CHANGELOG.md`: one entry per release.
 - `assets/`: the pacu logo (pacu.svg) and the wordmark (pacu-wordmark.svg), drawn by hand.
 
 ## Build and test
@@ -28,6 +30,7 @@ The CI (.github/workflows/ci.yml) runs the tests in an `archlinux` container wit
 
 - Keep the help text and exit codes of the fish function (the test `the_help_is_the_one_of_the_fish_function` pins the help).
 - Commands are argument vectors; never `sh -c`.
+- The package provides `pacu-wrapper` (Swaydesk's swaydesk-desktop depends on it); keep it.
 - Without paru: pacman with sudo for writes (not as root), official repos only; never install an AUR helper.
 
 ## Runtime assumptions
