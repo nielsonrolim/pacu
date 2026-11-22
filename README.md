@@ -10,7 +10,7 @@ paku is the Rust successor of the fish function [pak](https://github.com/nielson
 
 ```sh
 paku upgrade             # paru -Syu (and flatpak upgrade if available, unless --no-flatpak)
-paku maintain [args]     # full Cachy-Update maintenance run (cachy-update)
+paku maintain            # upgrade, then orphans, caches, pacnew, services (cachy-update if installed)
 paku check               # list pending updates without applying them
 paku update              # paru -Sy (refresh package DB only)
 paku search <pkg>        # paru -Ss <pkg>
@@ -44,11 +44,11 @@ The table shows paru; yay and pikaur get the same operations (`yay -Syu`, `pikau
 | `info`       | `paru -Si`                | `pacman -Si`, then `pacman -Qi` if not in the repos |
 | `clean`      | `paru -Sc`                | `sudo pacman -Sc`                                  |
 | `autoremove` | `paru -Rns` the orphans   | `sudo pacman -Rns` the orphans                     |
-| `check`      | `paru -Qu`                | `checkupdates` (pacman-contrib), else `pacman -Qu` |
+| `check`      | `paru -Qu`                | `checkupdates` (pacman-contrib, with fakeroot), else `pacman -Qu` |
 
 `owns`, `files`, `list` and `aur` always use `pacman`. When `search`, `install` or `info` fail without a helper, paku adds that the AUR wasn't used. As root, paku runs `pacman` without `sudo`.
 
-`check` and `maintain` prefer `cachy-update`, then `arch-update`, when installed.
+`check` and `maintain` hand off to `cachy-update` when it's installed.
 
 ### Choosing the helper
 
@@ -70,7 +70,7 @@ Every command runs directly, as an argument list (never through a shell), and pa
 ## Requirements
 
 - `pacman` (Arch or an Arch-derived distro)
-- optional: an AUR helper, [`paru`](https://github.com/Morganamilo/paru), [`yay`](https://github.com/Jguer/yay) or [`pikaur`](https://github.com/actionless/pikaur), `flatpak` (`paku upgrade` also runs `flatpak upgrade`), [`cachy-update`](https://github.com/CachyOS/cachy-update) or `arch-update` (`paku maintain`), `curl` (`paku aur-audit`), `pacman-contrib` (`paku check` without a helper)
+- optional: an AUR helper, [`paru`](https://github.com/Morganamilo/paru), [`yay`](https://github.com/Jguer/yay) or [`pikaur`](https://github.com/actionless/pikaur), `flatpak` (`paku upgrade` also runs `flatpak upgrade`), `curl` (`paku aur-audit`, the news in `paku maintain`), `pacman-contrib` and `fakeroot` (`checkupdates` for `paku check` without a helper and in `paku maintain`; `paccache` and `pacdiff` in `paku maintain`), `archlinux-contrib` (`checkservices` in `paku maintain`), [`cachy-update`](https://github.com/CachyOS/cachy-update) (`paku maintain` and `paku check` hand off to it)
 
 ## Install
 
@@ -122,7 +122,24 @@ Runs `paru -Syu` (or `sudo pacman -Syu`) and then, if `flatpak` is on your PATH 
 paku maintain
 ```
 
-Delegates to [`cachy-update`](https://github.com/CachyOS/cachy-update) (falling back to `arch-update`) for a complete maintenance flow: repo + AUR updates plus news, orphan removal, cache cleanup, pacnew handling, and kernel/reboot and service-restart checks. Any extra arguments are passed straight through, e.g. `paku maintain --devel` or `paku maintain --news 10`. If neither tool is installed, it prints how to install `cachy-update` and exits 1.
+With [`cachy-update`](https://github.com/CachyOS/cachy-update) installed, it runs `cachy-update` with the arguments as given. Otherwise paku runs its own flow, in this order:
+
+1. the pending updates (`checkupdates` with fakeroot, else `pacman -Qu`, plus the helper's `-Qua`);
+2. the Arch Linux news not shown before (titles and links from the RSS feed, with `curl`);
+3. the upgrade, after a `[Y/n]`: as `paku upgrade`, then `flatpak update`;
+4. orphans (`sudo pacman -Rns`);
+5. unused Flatpak runtimes (`flatpak uninstall --unused`, which lists them and asks again);
+6. the package cache (`sudo paccache -rk3` and `-ruk0`), then the helper's own caches (`paru -Sc`);
+7. `.pacnew` and `.pacsave` files (`pacdiff --sudo`, so `$DIFFPROG` runs as you);
+8. failed system and user units, and the journal size when over 1 GiB, as information only;
+9. after an upgrade, the services running old libraries (`checkservices`, from archlinux-contrib), restarted all or none; the display managers (with the unit behind `display-manager.service`), the service of the login session paku runs in (its PAM service: `greetd`, `sshd`…), D-Bus, logind, the network services, the gettys and `user@` units are only named, never restarted;
+10. when the running kernel is no longer installed, an offer to reboot.
+
+Steps 4 to 10 ask `[y/N]`: a plain Enter keeps everything. A step whose tool is missing (`curl`, `flatpak`, `pacman-contrib`, `archlinux-contrib`) is skipped with a note. Without a terminal, or with `--dry-run`, every step only lists what it would do, the upgrade included. `--no-flatpak` leaves Flatpak out, and `--devel` is passed to the helper. paku never passes `--noconfirm`.
+
+The last line says how it went: `paku maintain: done`, `paku maintain: done, 1 step failed (orphans)` or `paku maintain: stopped (Ctrl-C)`, followed by `; reboot recommended (…)` when a new kernel wasn't booted or services were kept running on old files (said once, for both). As root, the lock is `/run/paku-maintain.lock` and the news state `/var/lib/paku/last-news`. Exit codes: 0 done (including steps skipped or answered no), 1 bad usage, 2 a step failed (the next steps still ran), 17 another `paku maintain` is running, 130 Ctrl-C (which stops the flow at once; at a question, paku ends by the signal, which the shell also reports as 130). When the upgrade fails, the steps that remove or restart something are skipped, and only the information steps run. With `cachy-update`, its own codes.
+
+The flow follows [arch-update](https://github.com/Antiz96/arch-update)'s (version 4.4.7) and is reimplemented here: no code of it is used. It differs in the defaults (arch-update asks `[Y/n]` before cleaning the cache and merging `.pacnew` files) and in the information steps (failed units and the journal).
 
 ### Check for pending updates
 
@@ -130,7 +147,7 @@ Delegates to [`cachy-update`](https://github.com/CachyOS/cachy-update) (falling 
 paku check
 ```
 
-Lists available updates without applying them: `cachy-update --list` or `arch-update --list` when available, otherwise `paru -Qu` (without a helper, `checkupdates`, else `pacman -Qu`).
+Lists available updates without applying them: `cachy-update --list` when it's installed, otherwise `paru -Qu` (without a helper, `checkupdates`, else `pacman -Qu`). paku's own list has packages only (repos and AUR), no Flatpak; `cachy-update --list` can include Flatpak updates.
 
 ### Search, install, inspect and remove
 

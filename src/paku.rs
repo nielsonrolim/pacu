@@ -6,6 +6,7 @@ use crate::audit;
 use crate::commands::{self, Kind};
 use crate::completions;
 use crate::helper::{self, Choice};
+use crate::maintain;
 
 /// Where the "Arch Linux AUR Compromised" list is published (HedgeDoc's raw markdown download).
 pub const AUR_AUDIT_URL: &str = "https://md.archlinux.org/s/SxbqukK6IA/download";
@@ -31,16 +32,28 @@ pub trait Sys {
     fn interrupted(&self) -> bool;
     fn out(&mut self, text: &str);
     fn err(&mut self, text: &str);
+    /// Whether stdin and stdout are a terminal (`maintain` only asks and changes the system there).
+    fn tty(&self) -> bool;
+    /// Asks a yes/no question on the terminal; `default` is the answer to a plain Enter. A Ctrl-C there stops
+    /// paku.
+    fn ask(&mut self, question: &str, default: bool) -> bool;
+    /// Takes `maintain`'s lock for the rest of the run; false when another run holds it.
+    fn lock(&mut self) -> bool;
+    /// The id of the newest Arch news item `maintain` showed last, and saving it.
+    fn last_news(&self) -> Option<String>;
+    fn save_last_news(&mut self, id: &str);
+    /// Whether a path exists.
+    fn exists(&self, path: &str) -> bool;
 }
 
 /// A fixed command followed by the user's arguments.
-fn with_args(words: &[&str], args: &[OsString]) -> Vec<OsString> {
+pub(crate) fn with_args(words: &[&str], args: &[OsString]) -> Vec<OsString> {
     let mut line = argv(words);
     line.extend(args.iter().cloned());
     line
 }
 
-fn argv<I, S>(words: I) -> Vec<OsString>
+pub(crate) fn argv<I, S>(words: I) -> Vec<OsString>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -50,14 +63,14 @@ where
 
 /// The package tool: an AUR helper (repos and the AUR; see `helper`), otherwise pacman (the official
 /// repos only, with sudo where pacman needs root).
-struct Backend {
-    choice: Choice,
-    root: bool,
+pub(crate) struct Backend {
+    pub(crate) choice: Choice,
+    pub(crate) root: bool,
 }
 
 impl Backend {
     /// The tool for this run; a setting that can't be followed is said on stderr.
-    fn of(sys: &mut dyn Sys) -> Backend {
+    pub(crate) fn of(sys: &mut dyn Sys) -> Backend {
         let setting = sys.helper_setting();
         let (choice, warning) = helper::choose(setting.as_ref().map(|(v, s)| (v.as_str(), s.as_str())), |p| sys.has(p));
         if let Some(warning) = warning {
@@ -67,7 +80,7 @@ impl Backend {
     }
 
     /// An operation that changes the system: `<helper> <op>`, else `sudo pacman <op>` (`pacman` as root).
-    fn writes(&self, op: &str, args: &[OsString]) -> Vec<OsString> {
+    pub(crate) fn writes(&self, op: &str, args: &[OsString]) -> Vec<OsString> {
         let tool: &[&str] = match self.choice.helper {
             Some(helper) => &[helper, op],
             None if self.root => &["pacman", op],
@@ -83,7 +96,7 @@ impl Backend {
 }
 
 /// Whether the last command was stopped by Ctrl-C or Ctrl-\: by its code, or by what paku got.
-fn stopped(sys: &dyn Sys, code: i32) -> bool {
+pub(crate) fn stopped(sys: &dyn Sys, code: i32) -> bool {
     INTERRUPTED.contains(&code) || sys.interrupted()
 }
 
@@ -99,7 +112,7 @@ fn note_no_aur(sys: &mut dyn Sys, backend: &Backend, code: i32) {
 }
 
 /// Lines of a command's output, without the empty ones.
-fn lines(data: &[u8]) -> Vec<String> {
+pub(crate) fn lines(data: &[u8]) -> Vec<String> {
     String::from_utf8_lossy(data).lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()
 }
 
@@ -163,24 +176,22 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
             sys.run(&argv(["flatpak", "upgrade"]))
         }
         Kind::Maintain => {
-            for tool in ["cachy-update", "arch-update"] {
-                if sys.has(tool) {
-                    return sys.run(&with_args(&[tool], rest));
-                }
+            // cachy-update when installed (with the arguments as given), otherwise paku's own flow
+            if sys.has("cachy-update") {
+                return sys.run(&with_args(&["cachy-update"], rest));
             }
-            sys.out("Cachy-Update is not installed. Install it with:\n  paku install cachy-update\n");
-            1
+            let backend = Backend::of(sys);
+            maintain::run(rest, sys, &backend)
         }
         Kind::Check => {
-            for tool in ["cachy-update", "arch-update"] {
-                if sys.has(tool) {
-                    return sys.run(&argv([tool, "--list"]));
-                }
+            if sys.has("cachy-update") {
+                return sys.run(&argv(["cachy-update", "--list"]));
             }
             if let Some(helper) = backend.choice.helper {
                 sys.run(&argv([helper, "-Qu"]))
-            } else if sys.has("checkupdates") {
-                // pacman-contrib: checks against a fresh copy of the databases, without root
+            } else if sys.has("checkupdates") && sys.has("fakeroot") {
+                // pacman-contrib: checks against a fresh copy of the databases, without root (fakeroot is only
+                // an optional dependency of pacman-contrib, and checkupdates fails without it)
                 sys.run(&argv(["checkupdates"]))
             } else {
                 sys.run(&argv(["pacman", "-Qu"]))
@@ -323,30 +334,40 @@ fn aur_audit(sys: &mut dyn Sys) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::collections::HashMap;
 
     /// A system that records the command lines and answers from a script.
     #[derive(Default)]
-    struct Fake {
-        programs: Vec<&'static str>,
-        root: bool,
+    pub(crate) struct Fake {
+        pub(crate) programs: Vec<&'static str>,
+        pub(crate) root: bool,
         /// PAKU_HELPER or the config's helper, with where it came from.
-        setting: Option<(&'static str, &'static str)>,
+        pub(crate) setting: Option<(&'static str, &'static str)>,
         /// Exit codes by command line ("sudo pacman -S foo"); 0 when missing.
-        codes: HashMap<String, i32>,
+        pub(crate) codes: HashMap<String, i32>,
         /// Captured outputs by command line; a missing one can't start.
-        outputs: HashMap<String, (i32, String)>,
-        ran: Vec<String>,
-        /// A command line during which the user presses Ctrl-C.
-        interrupt_on: Option<&'static str>,
-        interrupted: bool,
-        out: String,
-        err: String,
+        pub(crate) outputs: HashMap<String, (i32, String)>,
+        pub(crate) ran: Vec<String>,
+        /// A command line (or a question) during which the user presses Ctrl-C.
+        pub(crate) interrupt_on: Option<&'static str>,
+        pub(crate) interrupted: bool,
+        pub(crate) out: String,
+        pub(crate) err: String,
+        pub(crate) tty: bool,
+        /// The answers to the questions, in order; a question with none left fails the test.
+        pub(crate) answers: Vec<bool>,
+        pub(crate) asked: Vec<String>,
+        /// The answer each question gives to a plain Enter.
+        pub(crate) defaults: Vec<bool>,
+        pub(crate) lock_held: bool,
+        pub(crate) last_news: Option<String>,
+        pub(crate) saved_news: Option<String>,
+        pub(crate) files: Vec<String>,
     }
 
-    fn line(argv: &[OsString]) -> String {
+    pub(crate) fn line(argv: &[OsString]) -> String {
         argv.iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ")
     }
 
@@ -383,13 +404,38 @@ mod tests {
             self.err.push_str(text);
             self.err.push('\n');
         }
+        fn tty(&self) -> bool {
+            self.tty
+        }
+        fn ask(&mut self, question: &str, default: bool) -> bool {
+            self.asked.push(question.to_string());
+            self.defaults.push(default);
+            if self.interrupt_on.is_some_and(|q| question.contains(q)) {
+                self.interrupted = true;
+                return false;
+            }
+            assert!(!self.answers.is_empty(), "unexpected question: {question}");
+            self.answers.remove(0)
+        }
+        fn lock(&mut self) -> bool {
+            !self.lock_held
+        }
+        fn last_news(&self) -> Option<String> {
+            self.last_news.clone()
+        }
+        fn save_last_news(&mut self, id: &str) {
+            self.saved_news = Some(id.to_string());
+        }
+        fn exists(&self, path: &str) -> bool {
+            self.files.iter().any(|f| f == path)
+        }
     }
 
-    fn paku(fake: &mut Fake, args: &[&str]) -> i32 {
+    pub(crate) fn paku(fake: &mut Fake, args: &[&str]) -> i32 {
         run(&argv(args), fake)
     }
 
-    fn with(programs: &[&'static str]) -> Fake {
+    pub(crate) fn with(programs: &[&'static str]) -> Fake {
         Fake { programs: programs.to_vec(), ..Fake::default() }
     }
 
@@ -471,10 +517,13 @@ mod tests {
         let mut f = Fake { root: true, ..Fake::default() };
         paku(&mut f, &["install", "htop"]);
         assert_eq!(f.ran, ["pacman -S htop"]);
-        // pacman-contrib's checkupdates, when there
-        let mut f = with(&["checkupdates"]);
+        // pacman-contrib's checkupdates, when there with fakeroot
+        let mut f = with(&["checkupdates", "fakeroot"]);
         paku(&mut f, &["co"]);
         assert_eq!(f.ran, ["checkupdates"]);
+        let mut f = with(&["checkupdates"]);
+        paku(&mut f, &["co"]);
+        assert_eq!(f.ran, ["pacman -Qu"]);
     }
 
     #[test]
@@ -611,19 +660,25 @@ mod tests {
     }
 
     #[test]
-    fn maintain_and_check_prefer_cachy_update_then_arch_update() {
+    fn maintain_and_check_go_to_cachy_update_only() {
+        // cachy-update installed: it runs, with the arguments as given
         let mut f = with(&["paru", "cachy-update", "arch-update"]);
         paku(&mut f, &["full", "--news", "10"]);
         paku(&mut f, &["check"]);
         assert_eq!(f.ran, ["cachy-update --news 10", "cachy-update --list"]);
-        let mut f = with(&["arch-update"]);
-        paku(&mut f, &["maintain"]);
+        // arch-update alone: paku's own flow and list (not a terminal here, so the flow only lists)
+        let mut f = with(&["arch-update", "checkupdates", "fakeroot"]);
+        f.outputs.insert("checkupdates".into(), (2, String::new()));
+        assert_eq!(paku(&mut f, &["maintain"]), 0);
+        assert!(f.ran.iter().all(|l| !l.starts_with("arch-update")), "{:?}", f.ran);
+        assert!(f.out.contains("paku maintain: no terminal, listing only"));
+        f.ran.clear();
         paku(&mut f, &["check"]);
-        assert_eq!(f.ran, ["arch-update", "arch-update --list"]);
+        assert_eq!(f.ran, ["checkupdates"]);
+        // neither: the same
         let mut f = with(&["paru"]);
-        assert_eq!(paku(&mut f, &["cu"]), 1);
-        assert_eq!(f.out, "Cachy-Update is not installed. Install it with:\n  paku install cachy-update\n");
-        assert!(f.ran.is_empty());
+        assert_eq!(paku(&mut f, &["cu"]), 0);
+        assert!(f.ran.contains(&"paru -Qua".to_string()), "{:?}", f.ran);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-.TH PAKU 1 2026-11-22 "paku 0.2.0" "User Commands"
+.TH PAKU 1 2026-11-22 "paku 0.3.0" "User Commands"
 .SH NAME
 paku \- a small package-management wrapper around an AUR helper and pacman
 .SH SYNOPSIS
@@ -41,24 +41,62 @@ With
 .BR \-\-no\-flatpak ,
 only the system upgrade.
 .TP
-.BR maintain ", " cu ", " full ", " full\-upgrade " [" \fIargs\fR ...]
-Runs
+.BR maintain ", " cu ", " full ", " full\-upgrade " [" \-\-dry\-run "] [" \-\-no\-flatpak "] [" \-\-devel ]
+With
 .B cachy\-update
-(or
-.BR arch\-update )
-with the arguments.
+installed, runs it with the arguments as given.
+Otherwise runs paku's own flow: the pending updates; the Arch Linux news not shown before (with
+.BR curl );
+the upgrade, after a [Y/n], as
+.BR upgrade ;
+orphans
+.RB ( "sudo pacman \-Rns" );
+unused Flatpak runtimes;
+the package cache
+.RB ( "sudo paccache \-rk3" " and " \-ruk0 ),
+then the helper's caches;
+.I .pacnew
+and
+.I .pacsave
+files
+.RB ( "pacdiff \-\-sudo" );
+failed units and a journal over 1 GiB, as information only;
+after an upgrade, the services to restart
+.RB ( checkservices ,
+from archlinux\-contrib),
+all or none, never the display managers (with the unit behind
+.IR display\-manager.service ),
+the service of the current login session, D\-Bus, logind, the network services, the gettys or
+.I user@
+units;
+and a reboot when the running kernel is no longer installed.
+Every step but the upgrade asks [y/N].
+The last line says how it went, and ends with
+.I "; reboot recommended (...)"
+when a new kernel wasn't booted or services were kept running on old files.
+A step whose tool is missing is skipped with a note.
+Without a terminal, or with
+.BR \-\-dry\-run ,
+every step only lists what it would do, the upgrade included.
+.B \-\-no\-flatpak
+leaves Flatpak out;
+.B \-\-devel
+goes to the helper.
+.B \-\-noconfirm
+is never passed.
+The flow follows arch\-update 4.4.7 (https://github.com/Antiz96/arch\-update), reimplemented with no code of it;
+it differs in the [y/N] defaults and in the information steps.
 .TP
 .BR check ", " co
 Lists pending updates:
 .B cachy\-update \-\-list
-or
-.B arch\-update \-\-list
-when installed, otherwise
+when installed (which can include Flatpak updates), otherwise
 .B paru \-Qu
 (without paru,
 .BR checkupdates ,
 else
-.BR "pacman \-Qu" ).
+.BR "pacman \-Qu" ),
+packages only, with no Flatpak.
 .TP
 .BR update ", " refresh
 .B paru \-Sy
@@ -161,13 +199,41 @@ when XDG_CONFIG_HOME is unset or not absolute). Lines are
 the value may be quoted, and
 .B #
 starts a comment.
+.TP
+.I $XDG_STATE_HOME/paku/last\-news
+The newest Arch news item
+.B maintain
+showed
+.RI ( ~/.local/state/paku/last\-news ).
+.TP
+.I $XDG_RUNTIME_DIR/paku\-maintain.lock
+The lock of
+.B maintain
+(else
+.IR /run/user/UID ,
+else
+.IR ~/.cache/paku ).
+As root, the lock is
+.I /run/paku\-maintain.lock
+and the news state
+.IR /var/lib/paku/last\-news .
 .SH EXIT STATUS
 The exit code of the command run. 1 with no subcommand, an unknown one or a missing argument;
 .B aur\-audit
 exits 1 when an installed package is on the list or the list can't be fetched.
+.B maintain
+(its own flow) exits 0 when done, steps skipped or answered no included; 1 on bad usage; 2 when a step
+failed (the next steps still ran); 17 when another
+.B paku maintain
+is running; 130 on Ctrl\-C during a command, which stops the flow at once (a Ctrl\-C at a question ends paku
+by the signal, which a shell also reports as 130).
+When the upgrade fails, the steps that remove or restart something are skipped; the information steps still run.
 .SH SEE ALSO
 .BR paru (8),
 .BR yay (8),
 .BR pikaur (1),
 .BR pacman (8),
-.BR checkupdates (8)
+.BR checkupdates (8),
+.BR paccache (8),
+.BR pacdiff (8),
+.BR checkservices (8)

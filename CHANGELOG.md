@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 (2026-11-22)
+
+- **`paku maintain` has its own flow** when cachy-update isn't installed: the pending updates, the Arch news
+  not shown before, the upgrade, then orphans, unused Flatpak runtimes, the package cache, `.pacnew` files,
+  failed units and the journal size (information only), services to restart and a reboot for a new kernel.
+  Every step but the upgrade asks `[y/N]`; without a terminal, or with `--dry-run`, it only lists. It follows
+  arch-update 4.4.7's flow, reimplemented. Exit codes 0/1/2/17/130.
+- `paku maintain` and `paku check` hand off to cachy-update only; arch-update is no longer used.
+- `checkupdates` is used only with `fakeroot` installed (pacman-contrib lists it as optional, and checkupdates
+  fails without it); otherwise `pacman -Qu`. `checkservices` comes from archlinux-contrib.
+
 ## 0.2.0 (2026-11-22)
 
 - **pacu is paku again.** The package, the command, the completions and the man page are `paku`; the
