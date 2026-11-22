@@ -199,7 +199,8 @@ impl Flow<'_> {
             return Err(Stopped);
         }
         if code != 0 {
-            self.sys.err(&format!("paku maintain: {step}: failed (exit {code})"));
+            // pacman and the helpers also exit 1 when their own question is answered no
+            self.sys.err(&format!("paku maintain: {step}: didn't go through (exit {code})"));
             if !self.failed.contains(&step) {
                 self.failed.push(step);
             }
@@ -265,8 +266,9 @@ impl Flow<'_> {
     fn pending(&mut self) -> Step<(Vec<String>, bool)> {
         self.title("Pending updates");
         let mut known = true;
-        let mut list = if self.sys.has("checkupdates") {
-            // pacman-contrib: a fresh copy of the databases, without root; 2 is "none"
+        let mut list = if self.sys.has("checkupdates") && self.sys.has("fakeroot") {
+            // pacman-contrib: a fresh copy of the databases, without root (it needs fakeroot, only an optional
+            // dependency of pacman-contrib); 2 is "none"
             match self.capture(argv(["checkupdates"]))? {
                 Some((0 | 2, data)) => lines(&data),
                 _ => {
@@ -503,7 +505,7 @@ impl Flow<'_> {
     fn services(&mut self) -> Step {
         self.title("Services to restart");
         if !self.sys.has("checkservices") {
-            self.skip("install pacman-contrib (checkservices) to find them");
+            self.skip("install archlinux-contrib (checkservices) to find them");
             return Ok(());
         }
         let mut words = vec!["checkservices", "-F", "-P", "-R"];
@@ -636,7 +638,7 @@ mod tests {
     }
 
     const ALL: &[&str] =
-        &["paru", "checkupdates", "curl", "flatpak", "paccache", "pacdiff", "checkservices", "journalctl"];
+        &["paru", "checkupdates", "fakeroot", "curl", "flatpak", "paccache", "pacdiff", "checkservices", "journalctl"];
 
     #[test]
     fn every_step_with_yes() {
@@ -731,14 +733,14 @@ mod tests {
         assert!(f.out.contains("skipped: install curl to see the news"));
         assert!(f.out.contains("skipped: install pacman-contrib (paccache)"));
         assert!(f.out.contains("skipped: install pacman-contrib (pacdiff)"));
-        assert!(f.out.contains("skipped: install pacman-contrib (checkservices)"));
+        assert!(f.out.contains("skipped: install archlinux-contrib (checkservices)"));
         assert!(!f.out.contains("Unused Flatpak"));
         assert!(f.ran.iter().all(|l| !l.starts_with("flatpak") && !l.starts_with("curl")));
     }
 
     #[test]
     fn as_root_there_is_no_sudo() {
-        let mut f = busy(&["checkupdates", "pacdiff", "paccache", "checkservices"]);
+        let mut f = busy(&["checkupdates", "fakeroot", "pacdiff", "paccache", "checkservices"]);
         f.root = true;
         f.outputs.insert(CHECKSERVICES.into(), (0, "systemctl restart 'cups.service'\n".into()));
         f.answers = vec![true; 6];

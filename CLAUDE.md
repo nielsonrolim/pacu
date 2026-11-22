@@ -38,5 +38,5 @@ The CI (.github/workflows/ci.yml) runs the tests in an `archlinux` container wit
 
 ## Runtime assumptions
 
-- `pacman` on PATH (Arch / Arch-derived). `paru`, `yay`, `pikaur`, `flatpak`, `cachy-update`, `curl` and `pacman-contrib` (`checkupdates`, `paccache`, `pacdiff`, `checkservices`) are optional and looked up on the PATH.
+- `pacman` on PATH (Arch / Arch-derived). `paru`, `yay`, `pikaur`, `flatpak`, `cachy-update`, `curl` and `pacman-contrib` (`checkupdates` with `fakeroot`, `paccache`, `pacdiff`) and `archlinux-contrib` (`checkservices`) are optional and looked up on the PATH.
 - `paku aur-audit` fetches the "Arch Linux AUR Compromised" list from the HedgeDoc `/download` endpoint (`https://md.archlinux.org/s/SxbqukK6IA/download`, raw markdown) with `curl -fsSL --max-time 20`, drops the code-fence and empty lines, and intersects it with `pacman -Qmq`. Exits non-zero if any installed AUR package matches, or if the list can't be fetched.

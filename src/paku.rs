@@ -189,8 +189,9 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
             }
             if let Some(helper) = backend.choice.helper {
                 sys.run(&argv([helper, "-Qu"]))
-            } else if sys.has("checkupdates") {
-                // pacman-contrib: checks against a fresh copy of the databases, without root
+            } else if sys.has("checkupdates") && sys.has("fakeroot") {
+                // pacman-contrib: checks against a fresh copy of the databases, without root (fakeroot is only
+                // an optional dependency of pacman-contrib, and checkupdates fails without it)
                 sys.run(&argv(["checkupdates"]))
             } else {
                 sys.run(&argv(["pacman", "-Qu"]))
@@ -516,10 +517,13 @@ pub(crate) mod tests {
         let mut f = Fake { root: true, ..Fake::default() };
         paku(&mut f, &["install", "htop"]);
         assert_eq!(f.ran, ["pacman -S htop"]);
-        // pacman-contrib's checkupdates, when there
-        let mut f = with(&["checkupdates"]);
+        // pacman-contrib's checkupdates, when there with fakeroot
+        let mut f = with(&["checkupdates", "fakeroot"]);
         paku(&mut f, &["co"]);
         assert_eq!(f.ran, ["checkupdates"]);
+        let mut f = with(&["checkupdates"]);
+        paku(&mut f, &["co"]);
+        assert_eq!(f.ran, ["pacman -Qu"]);
     }
 
     #[test]
@@ -663,7 +667,7 @@ pub(crate) mod tests {
         paku(&mut f, &["check"]);
         assert_eq!(f.ran, ["cachy-update --news 10", "cachy-update --list"]);
         // arch-update alone: paku's own flow and list (not a terminal here, so the flow only lists)
-        let mut f = with(&["arch-update", "checkupdates"]);
+        let mut f = with(&["arch-update", "checkupdates", "fakeroot"]);
         f.outputs.insert("checkupdates".into(), (2, String::new()));
         assert_eq!(paku(&mut f, &["maintain"]), 0);
         assert!(f.ran.iter().all(|l| !l.starts_with("arch-update")), "{:?}", f.ran);

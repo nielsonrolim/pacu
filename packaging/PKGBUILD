@@ -21,7 +21,9 @@ optdepends=('paru: AUR packages (search, install, upgrade), the first helper pak
             'flatpak: paku upgrade and paku maintain also upgrade the Flatpaks'
             'cachy-update: paku maintain and paku check hand off to it'
             'curl: paku aur-audit and the Arch news in paku maintain'
-            'pacman-contrib: paku check without an AUR helper; caches, pacnew and services in paku maintain')
+            'pacman-contrib: checkupdates (paku check without an AUR helper, paku maintain), paccache and pacdiff (paku maintain)'
+            'fakeroot: checkupdates needs it'
+            'archlinux-contrib: checkservices (the services to restart in paku maintain)')
 source=("$pkgname-$pkgver.tar.xz")
 sha256sums=('SKIP')
 
