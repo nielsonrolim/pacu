@@ -1,10 +1,10 @@
 //! Which tool runs the package operations: an AUR helper (paru, yay or pikaur) or pacman. The user picks
-//! one with `PACU_HELPER` or the `helper` key of `~/.config/pacu/config`; `auto` (the default) takes the
+//! one with `PAKU_HELPER` or the `helper` key of `~/.config/paku/config`; `auto` (the default) takes the
 //! first helper installed, in the order of `HELPERS`, and pacman without any.
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-/// The AUR helpers pacu knows, in the order `auto` looks for them. All three take pacman's operations
+/// The AUR helpers paku knows, in the order `auto` looks for them. All three take pacman's operations
 /// (`-Syu`, `-S`, `-Ss`, `-Si`, `-Sc`, `-Qu` extended to the AUR) and call sudo themselves.
 pub const HELPERS: [&str; 3] = ["paru", "yay", "pikaur"];
 
@@ -12,7 +12,7 @@ pub const HELPERS: [&str; 3] = ["paru", "yay", "pikaur"];
 pub const CHOICES: &str = "auto, paru, yay, pikaur or pacman";
 
 /// Where the setting came from, for the warnings.
-pub const ENV: &str = "PACU_HELPER";
+pub const ENV: &str = "PAKU_HELPER";
 
 /// The `helper` value of the config file: `helper = yay` (quotes optional), `#` starts a comment. The last
 /// `helper` line wins; other keys are ignored.
@@ -32,14 +32,14 @@ pub fn parse_config(text: &str) -> Option<String> {
     found
 }
 
-/// The config file: `$XDG_CONFIG_HOME/pacu/config`, or `~/.config/pacu/config` (an XDG_CONFIG_HOME that
+/// The config file: `$XDG_CONFIG_HOME/paku/config`, or `~/.config/paku/config` (an XDG_CONFIG_HOME that
 /// isn't absolute is ignored, as the spec says).
 pub fn config_path(xdg_config_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
     let base = match xdg_config_home.map(PathBuf::from) {
         Some(dir) if dir.is_absolute() => dir,
         _ => PathBuf::from(home.filter(|h| !h.is_empty())?).join(".config"),
     };
-    Some(base.join("pacu").join("config"))
+    Some(base.join("paku").join("config"))
 }
 
 /// The tool chosen.
@@ -63,11 +63,11 @@ pub fn choose(setting: Option<(&str, &str)>, has: impl Fn(&str) -> bool) -> (Cho
         _ => match HELPERS.into_iter().find(|h| *h == value) {
             Some(helper) if has(helper) => (Choice { helper: Some(helper), pacman_asked: false }, None),
             Some(helper) => {
-                (auto, Some(format!("pacu: {helper} (set in {source}) isn't installed; using {}", fallback())))
+                (auto, Some(format!("paku: {helper} (set in {source}) isn't installed; using {}", fallback())))
             }
             None => (
                 auto,
-                Some(format!("pacu: unknown helper {value:?} in {source} (use {CHOICES}); using {}", fallback())),
+                Some(format!("paku: unknown helper {value:?} in {source} (use {CHOICES}); using {}", fallback())),
             ),
         },
     }
@@ -90,10 +90,10 @@ mod tests {
     #[test]
     fn the_config_file() {
         let path = |x: Option<&str>, h: Option<&str>| config_path(x.map(OsString::from), h.map(OsString::from));
-        assert_eq!(path(Some("/x/cfg"), Some("/home/a")), Some(PathBuf::from("/x/cfg/pacu/config")));
-        assert_eq!(path(None, Some("/home/a")), Some(PathBuf::from("/home/a/.config/pacu/config")));
-        assert_eq!(path(Some("rel"), Some("/home/a")), Some(PathBuf::from("/home/a/.config/pacu/config")));
-        assert_eq!(path(Some(""), Some("/home/a")), Some(PathBuf::from("/home/a/.config/pacu/config")));
+        assert_eq!(path(Some("/x/cfg"), Some("/home/a")), Some(PathBuf::from("/x/cfg/paku/config")));
+        assert_eq!(path(None, Some("/home/a")), Some(PathBuf::from("/home/a/.config/paku/config")));
+        assert_eq!(path(Some("rel"), Some("/home/a")), Some(PathBuf::from("/home/a/.config/paku/config")));
+        assert_eq!(path(Some(""), Some("/home/a")), Some(PathBuf::from("/home/a/.config/paku/config")));
         assert_eq!(path(None, None), None);
         assert_eq!(path(None, Some("")), None);
     }
@@ -123,7 +123,7 @@ mod tests {
     fn a_chosen_helper_wins_over_the_order() {
         let (choice, warning) = choose(Some(("pikaur", ENV)), installed(&["paru", "pikaur"]));
         assert_eq!((choice.helper, warning), (Some("pikaur"), None));
-        let (choice, warning) = choose(Some(("pacman", "~/.config/pacu/config")), installed(&["paru"]));
+        let (choice, warning) = choose(Some(("pacman", "~/.config/paku/config")), installed(&["paru"]));
         assert_eq!(choice, Choice { helper: None, pacman_asked: true });
         assert_eq!(warning, None);
     }
@@ -132,12 +132,12 @@ mod tests {
     fn a_missing_or_unknown_helper_warns_and_falls_back_to_auto() {
         let (choice, warning) = choose(Some(("yay", ENV)), installed(&["paru"]));
         assert_eq!(choice.helper, Some("paru"));
-        assert_eq!(warning.as_deref(), Some("pacu: yay (set in PACU_HELPER) isn't installed; using paru"));
-        let (choice, warning) = choose(Some(("aura", "~/.config/pacu/config")), installed(&[]));
+        assert_eq!(warning.as_deref(), Some("paku: yay (set in PAKU_HELPER) isn't installed; using paru"));
+        let (choice, warning) = choose(Some(("aura", "~/.config/paku/config")), installed(&[]));
         assert_eq!(choice, Choice { helper: None, pacman_asked: false });
         assert_eq!(
             warning.as_deref(),
-            Some("pacu: unknown helper \"aura\" in ~/.config/pacu/config (use auto, paru, yay, pikaur or pacman); using pacman")
+            Some("paku: unknown helper \"aura\" in ~/.config/paku/config (use auto, paru, yay, pikaur or pacman); using pacman")
         );
     }
 }

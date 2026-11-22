@@ -1,7 +1,7 @@
 //! The subcommand table: one entry per subcommand feeds the help text, the dispatch and the
 //! completions, so an alias added here works and completes everywhere at once.
 
-/// What a subcommand does; `pacu::run` matches on it.
+/// What a subcommand does; `paku::run` matches on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Upgrade,
@@ -110,7 +110,7 @@ pub const COMMANDS: &[Command] = &[
         aliases: &["s"],
         usage: "search <pkg>",
         help: "paru -Ss <pkg>",
-        needs_args: Some("pacu search <package>"),
+        needs_args: Some("paku search <package>"),
         description: "Search packages (paru -Ss)",
         complete: Complete::Repo,
     },
@@ -120,7 +120,7 @@ pub const COMMANDS: &[Command] = &[
         aliases: &["add", "i"],
         usage: "install <pkg>...",
         help: "paru -S <pkg>",
-        needs_args: Some("pacu install <package>..."),
+        needs_args: Some("paku install <package>..."),
         description: "Install packages (paru -S)",
         complete: Complete::Repo,
     },
@@ -130,7 +130,7 @@ pub const COMMANDS: &[Command] = &[
         aliases: &["rm", "uninstall"],
         usage: "remove <pkg>...",
         help: "paru -Rns <pkg>",
-        needs_args: Some("pacu remove <package>..."),
+        needs_args: Some("paku remove <package>..."),
         description: "Remove packages (paru -Rns)",
         complete: Complete::Installed,
     },
@@ -140,7 +140,7 @@ pub const COMMANDS: &[Command] = &[
         aliases: &[],
         usage: "info <pkg>",
         help: "paru -Si <pkg>",
-        needs_args: Some("pacu info <package>"),
+        needs_args: Some("paku info <package>"),
         description: "Package info (paru -Si)",
         complete: Complete::RepoAndInstalled,
     },
@@ -150,7 +150,7 @@ pub const COMMANDS: &[Command] = &[
         aliases: &[],
         usage: "owns <file>",
         help: "pacman -Qo <file>",
-        needs_args: Some("pacu owns <file>..."),
+        needs_args: Some("paku owns <file>..."),
         description: "Find package owning a file (pacman -Qo)",
         complete: Complete::Paths,
     },
@@ -160,7 +160,7 @@ pub const COMMANDS: &[Command] = &[
         aliases: &[],
         usage: "files <pkg>",
         help: "pacman -Ql <pkg>",
-        needs_args: Some("pacu files <package>..."),
+        needs_args: Some("paku files <package>..."),
         description: "List files in a package (pacman -Ql)",
         complete: Complete::Installed,
     },
@@ -220,7 +220,7 @@ pub const COMMANDS: &[Command] = &[
         aliases: &[],
         usage: "completions <shell>",
         help: "print the bash, zsh or fish completions",
-        needs_args: Some("pacu completions <bash|zsh|fish>"),
+        needs_args: Some("paku completions <bash|zsh|fish>"),
         description: "Print the shell completions (bash, zsh or fish)",
         complete: Complete::Shells,
     },
@@ -236,7 +236,7 @@ pub const MAINTAIN_FLAGS: &[(&str, &str)] = &[
     ("--debug", "Display debug traces"),
 ];
 
-/// The shells `pacu completions` prints a script for.
+/// The shells `paku completions` prints a script for.
 pub const SHELLS: &[&str] = &["bash", "zsh", "fish"];
 
 /// The subcommand a word names (its name or one of its aliases).
@@ -244,11 +244,11 @@ pub fn find(word: &str) -> Option<&'static Command> {
     COMMANDS.iter().find(|c| c.words().any(|w| w == word))
 }
 
-/// The help `pacu` prints with no arguments.
+/// The help `paku` prints with no arguments.
 pub fn help() -> String {
     let mut text = String::from("Usage:\n");
     for c in COMMANDS {
-        text.push_str(&format!("  pacu {:<20}# {}\n", c.usage, c.help));
+        text.push_str(&format!("  paku {:<20}# {}\n", c.usage, c.help));
     }
     text
 }
@@ -275,22 +275,22 @@ mod tests {
     fn the_help_is_the_one_of_the_fish_function() {
         // The help of the fish function pak (functions/pak.fish), with the new name and the completions line
         let fish = "Usage:
-  pacu upgrade             # paru -Syu (and flatpak upgrade if available)
-  pacu maintain [args]     # full Cachy-Update maintenance run (cachy-update)
-  pacu check               # list pending updates without applying them
-  pacu update              # paru -Sy (refresh package DB only)
-  pacu search <pkg>        # paru -Ss <pkg>
-  pacu install <pkg>...    # paru -S <pkg>
-  pacu remove <pkg>...     # paru -Rns <pkg>
-  pacu info <pkg>          # paru -Si <pkg>
-  pacu owns <file>         # pacman -Qo <file>
-  pacu files <pkg>         # pacman -Ql <pkg>
-  pacu list                # explicitly installed packages (pacman -Qe)
-  pacu aur                 # AUR/foreign packages (pacman -Qm)
-  pacu aur-audit           # check installed AUR packages against the compromised list
-  pacu clean               # paru -Sc
-  pacu autoremove          # remove orphaned packages
-  pacu completions <shell> # print the bash, zsh or fish completions
+  paku upgrade             # paru -Syu (and flatpak upgrade if available)
+  paku maintain [args]     # full Cachy-Update maintenance run (cachy-update)
+  paku check               # list pending updates without applying them
+  paku update              # paru -Sy (refresh package DB only)
+  paku search <pkg>        # paru -Ss <pkg>
+  paku install <pkg>...    # paru -S <pkg>
+  paku remove <pkg>...     # paru -Rns <pkg>
+  paku info <pkg>          # paru -Si <pkg>
+  paku owns <file>         # pacman -Qo <file>
+  paku files <pkg>         # pacman -Ql <pkg>
+  paku list                # explicitly installed packages (pacman -Qe)
+  paku aur                 # AUR/foreign packages (pacman -Qm)
+  paku aur-audit           # check installed AUR packages against the compromised list
+  paku clean               # paru -Sc
+  paku autoremove          # remove orphaned packages
+  paku completions <shell> # print the bash, zsh or fish completions
 ";
         assert_eq!(help(), fish);
     }

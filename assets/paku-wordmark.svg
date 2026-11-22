@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 194 64" width="194" height="64" role="img" aria-labelledby="t">
-  <title id="t">pacu</title>
-  <!-- The pacu of pacu.svg and the name, drawn as strokes (no font needed). The letters are a mid-tone
+  <title id="t">paku</title>
+  <!-- The fish of paku.svg (a pacu) and the name, drawn as strokes (no font needed). The letters are a mid-tone
        teal, readable on light and dark backgrounds alike (the page's theme isn't the viewer's) -->
   <defs>
     <clipPath id="body"><ellipse cx="31" cy="32" rx="23" ry="21"/></clipPath>
@@ -20,7 +20,7 @@
     <circle cx="86" cy="35" r="11"/>
     <circle cx="114" cy="35" r="11"/>
     <path d="M125 24 V46"/>
-    <path d="M155.5 27.5 A11 11 0 1 0 155.5 42.5"/>
+    <path d="M137 13 V46 M155 24 L138 38 M144 33 L156 46"/>
     <path d="M166 24 V35 A10 10 0 0 0 186 35 M186 24 V46"/>
   </g>
 </svg>

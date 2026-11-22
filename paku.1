@@ -1,15 +1,15 @@
-.TH PACU 1 2026-11-22 "pacu 0.1.2" "User Commands"
+.TH PAKU 1 2026-11-22 "paku 0.2.0" "User Commands"
 .SH NAME
-pacu \- a small package-management wrapper around an AUR helper and pacman
+paku \- a small package-management wrapper around an AUR helper and pacman
 .SH SYNOPSIS
-.B pacu
+.B paku
 .I subcommand
 .RI [ args ...]
 .br
-.B pacu
+.B paku
 .RB [ \-\-help | \-\-version ]
 .SH DESCRIPTION
-.B pacu
+.B paku
 gives everyday package management on Arch Linux and its derivatives a smaller set of subcommands.
 It uses an AUR helper,
 .BR paru (8),
@@ -26,7 +26,7 @@ with
 .BR sudo (8)
 for the operations that change the system (not when run as root), and the official repositories only.
 Commands run directly, never through a shell, and
-.B pacu
+.B paku
 exits with their exit code.
 .SH SUBCOMMANDS
 .TP
@@ -117,7 +117,7 @@ with
 Prints the completion script for the shell.
 .SH CONFIGURATION
 The helper comes from the
-.B PACU_HELPER
+.B PAKU_HELPER
 environment variable or, without it, from a
 .B helper
 line in the config file:
@@ -139,13 +139,13 @@ gets a warning on stderr and counts as
 Only the subcommands that run the package tool read the setting.
 .SH ENVIRONMENT
 .TP
-.B PACU_HELPER
+.B PAKU_HELPER
 The helper, as in the config file; it wins over the file.
 .SH FILES
 .TP
-.I $XDG_CONFIG_HOME/pacu/config
+.I $XDG_CONFIG_HOME/paku/config
 The config file
-.RI ( ~/.config/pacu/config
+.RI ( ~/.config/paku/config
 when XDG_CONFIG_HOME is unset or not absolute). Lines are
 .IR "key = value" ,
 the value may be quoted, and
