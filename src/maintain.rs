@@ -16,6 +16,9 @@ pub const USAGE: &str = "paku maintain [--dry-run] [--no-flatpak] [--devel]";
 /// The exit code when another `paku maintain` holds the lock (arch-update's code for the same case).
 pub const LOCK_HELD: i32 = 17;
 
+/// The reboot reason for services still running on old files.
+const OLD_FILES: &str = "services kept running on old files";
+
 /// The exit code when a step failed (the next ones still ran).
 pub const STEP_FAILED: i32 = 2;
 
@@ -547,7 +550,7 @@ impl Flow<'_> {
             }
         }
         if !kept.is_empty() {
-            self.reboot.push("services kept running on old files");
+            self.recommend_reboot(OLD_FILES);
             self.note(&format!(
                 "not restarted here (they'd end the session or the network): {}; they still run the old files until \
                  you restart them yourself or reboot",
@@ -560,7 +563,26 @@ impl Flow<'_> {
         }
         self.show(&restart);
         let line = self.as_root(&["systemctl", "restart", "--"], &restart);
-        self.confirm("services", "Restart them all?", vec![line])
+        if self.listing {
+            self.would(&line);
+            return Ok(());
+        }
+        // Not restarted (a no, or a failure): they also stay on the old files
+        if !self.ask("Restart them all?", false)? {
+            self.recommend_reboot(OLD_FILES);
+            return Ok(());
+        }
+        let code = self.sys.run(&line);
+        if !self.ran("services", code)? {
+            self.recommend_reboot(OLD_FILES);
+        }
+        Ok(())
+    }
+
+    fn recommend_reboot(&mut self, reason: &'static str) {
+        if !self.reboot.contains(&reason) {
+            self.reboot.push(reason);
+        }
     }
 
     /// The units checkservices never offers: the display managers, the unit `display-manager.service` points
@@ -609,7 +631,7 @@ impl Flow<'_> {
                 return Ok(());
             }
         }
-        self.reboot.push("a new kernel");
+        self.recommend_reboot("a new kernel");
         Ok(())
     }
 }
@@ -977,6 +999,17 @@ mod tests {
         f.answers = vec![true; 7];
         assert_eq!(paku(&mut f, &["maintain"]), 0);
         assert!(f.out.ends_with("paku maintain: done\n"), "{}", f.out);
+        // A no at "Restart them all?", or a restart that fails, leaves them on the old files too
+        for (answer, code) in [(false, 0), (true, 1)] {
+            let mut f = busy(ALL);
+            f.outputs.insert(format!("sudo -n {CHECKSERVICES}"), (0, "systemctl restart 'cups.service'\n".into()));
+            f.files.push("/usr/lib/modules/6.17.1-arch1-1/vmlinuz".into());
+            f.codes.insert("sudo systemctl restart -- cups.service".into(), code);
+            f.answers = vec![true, true, true, true, true, true, answer];
+            paku(&mut f, &["maintain"]);
+            assert!(f.out.trim_end().ends_with("reboot recommended (services kept running on old files)"), "{}", f.out);
+            assert_eq!(f.out.matches("reboot recommended").count(), 1);
+        }
     }
 
     #[test]
