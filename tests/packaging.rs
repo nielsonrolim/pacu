@@ -1,25 +1,25 @@
-//! What the package promises to the packages that depend on it.
+//! What the package promises to the packages around it.
 
 const PKGBUILD: &str = include_str!("../packaging/PKGBUILD");
 
-/// The values of an array of the PKGBUILD (`name=(a "b=$pkgver")`), on one line.
+/// The values of an array of the PKGBUILD (`name=(a 'b<1:0')`), on one line; empty when it isn't there.
 fn array(name: &str) -> Vec<String> {
-    let line = PKGBUILD.lines().find(|l| l.starts_with(&format!("{name}=("))).unwrap_or_else(|| panic!("no {name}"));
+    let Some(line) = PKGBUILD.lines().find(|l| l.starts_with(&format!("{name}=("))) else { return Vec::new() };
     let inner = line.split_once('(').unwrap().1.rsplit_once(')').unwrap().0;
     inner.split_whitespace().map(|v| v.trim_matches(|c| c == '"' || c == '\'').to_string()).collect()
 }
 
 #[test]
-fn dependents_get_a_name_only_this_package_provides() {
-    // Swaydesk's swaydesk-desktop depends on pacu-wrapper: BlackArch's pacu has an epoch and would win a plain pacu
-    assert!(array("provides").contains(&"pacu-wrapper=$pkgver".to_string()), "{:?}", array("provides"));
+fn it_conflicts_with_our_old_pacu_only() {
+    // Our pacu 0.1.x has no epoch; BlackArch's unrelated pacu has epoch 1 and must stay installable next to paku
+    assert_eq!(array("conflicts"), ["pacu<1:0"]);
 }
 
 #[test]
-fn the_paku_upgrade_path_stays() {
-    assert!(array("provides").contains(&"paku=$pkgver".to_string()));
-    assert_eq!(array("replaces"), ["paku"]);
-    assert_eq!(array("conflicts"), ["paku"]);
+fn it_replaces_and_provides_nothing() {
+    // A replaces=(pacu) would make pacman -Syu offer to swap BlackArch's pacu for paku
+    assert!(array("replaces").is_empty(), "{:?}", array("replaces"));
+    assert!(array("provides").is_empty(), "{:?}", array("provides"));
 }
 
 #[test]

@@ -21,15 +21,15 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
       - name: Test (the completions parse in bash, zsh and fish)
-        run: PACU_REQUIRE_SHELLS=1 cargo test
+        run: PAKU_REQUIRE_SHELLS=1 cargo test
       - name: Man page
         run: |
-          warnings=$(groff -man -ww -z pacu.1 2>&1)
+          warnings=$(groff -man -ww -z paku.1 2>&1)
           [ -z "$warnings" ] || { echo "$warnings"; exit 1; }
       - name: The OBS source is the same under any umask
         run: |
           git config --global --add safe.directory "$PWD"
           (umask 002 && packaging/make-source.sh /tmp/src-002)
           (umask 077 && packaging/make-source.sh /tmp/src-077)
-          cmp /tmp/src-002/pacu-*.tar.xz /tmp/src-077/pacu-*.tar.xz
+          cmp /tmp/src-002/paku-*.tar.xz /tmp/src-077/paku-*.tar.xz
           cmp /tmp/src-002/PKGBUILD /tmp/src-077/PKGBUILD

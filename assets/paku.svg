@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t">
-  <title id="t">pacu: a pacu fish</title>
-  <!-- An original flat pacu (the South American fish with human-like teeth): a mid-tone body and an
+  <title id="t">paku: a paku fish</title>
+  <!-- An original flat paku (the South American fish with human-like teeth): a mid-tone body and an
        orange belly, readable on light and dark backgrounds -->
   <defs>
     <clipPath id="body"><ellipse cx="31" cy="32" rx="23" ry="21"/></clipPath>

@@ -1,35 +1,45 @@
-.TH PACU 1 2026-11-22 "pacu 0.1.2" "User Commands"
+.TH PAKU 1 2026-11-22 "paku 0.2.0" "User Commands"
 .SH NAME
-pacu \- a small package-management wrapper around paru and pacman
+paku \- a small package-management wrapper around an AUR helper and pacman
 .SH SYNOPSIS
-.B pacu
+.B paku
 .I subcommand
 .RI [ args ...]
 .br
-.B pacu
+.B paku
 .RB [ \-\-help | \-\-version ]
 .SH DESCRIPTION
-.B pacu
+.B paku
 gives everyday package management on Arch Linux and its derivatives a smaller set of subcommands.
-It uses
-.BR paru (8)
-when it is on the PATH, so the AUR is included; otherwise
+It uses an AUR helper,
+.BR paru (8),
+.BR yay (8)
+or
+.BR pikaur (1),
+so the AUR is included: the one chosen (see
+.BR CONFIGURATION ),
+or else the first of them on the PATH, in that order. Below,
+.B paru
+stands for the helper in use. Without one,
 .BR pacman (8),
 with
 .BR sudo (8)
 for the operations that change the system (not when run as root), and the official repositories only.
 Commands run directly, never through a shell, and
-.B pacu
+.B paku
 exits with their exit code.
 .SH SUBCOMMANDS
 .TP
-.BR upgrade ", " up
+.BR upgrade ", " up " [" \-\-no\-flatpak ]
 .B paru \-Syu
 (or
 .BR "sudo pacman \-Syu" ),
 then
 .B flatpak upgrade
 if flatpak is installed and the system upgrade succeeded.
+With
+.BR \-\-no\-flatpak ,
+only the system upgrade.
 .TP
 .BR maintain ", " cu ", " full ", " full\-upgrade " [" \fIargs\fR ...]
 Runs
@@ -108,11 +118,56 @@ with
 .TP
 .BR completions " " bash | zsh | fish
 Prints the completion script for the shell.
+.TP
+.B helper
+Prints the tool the other subcommands use, as one word:
+.BR paru ", " yay ", " pikaur " or " pacman
+(see
+.BR CONFIGURATION ).
+A setting that can't be followed is warned about on stderr.
+.SH CONFIGURATION
+The helper comes from the
+.B PAKU_HELPER
+environment variable or, without it, from a
+.B helper
+line in the config file:
+.PP
+.RS
+.nf
+# auto, paru, yay, pikaur or pacman
+helper = yay
+.fi
+.RE
+.PP
+.B auto
+(the default, also with no file) takes the first helper installed, in the order paru, yay, pikaur, and
+pacman without any.
+.B pacman
+uses pacman even when a helper is installed. A chosen helper that isn't installed, or an unknown value,
+gets a warning on stderr and counts as
+.BR auto .
+Only the subcommands that run the package tool read the setting.
+.SH ENVIRONMENT
+.TP
+.B PAKU_HELPER
+The helper, as in the config file; it wins over the file.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/paku/config
+The config file
+.RI ( ~/.config/paku/config
+when XDG_CONFIG_HOME is unset or not absolute). Lines are
+.IR "key = value" ,
+the value may be quoted, and
+.B #
+starts a comment.
 .SH EXIT STATUS
 The exit code of the command run. 1 with no subcommand, an unknown one or a missing argument;
 .B aur\-audit
 exits 1 when an installed package is on the list or the list can't be fetched.
 .SH SEE ALSO
 .BR paru (8),
+.BR yay (8),
+.BR pikaur (1),
 .BR pacman (8),
 .BR checkupdates (8)
