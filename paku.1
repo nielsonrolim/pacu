@@ -208,6 +208,10 @@ The lock of
 .IR /run/user/UID ,
 else
 .IR ~/.cache/paku ).
+As root, the lock is
+.I /run/paku\-maintain.lock
+and the news state
+.IR /var/lib/paku/last\-news .
 .SH EXIT STATUS
 The exit code of the command run. 1 with no subcommand, an unknown one or a missing argument;
 .B aur\-audit

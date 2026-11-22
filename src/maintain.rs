@@ -385,7 +385,7 @@ impl Flow<'_> {
             return Ok(());
         }
         self.show(&orphans);
-        let line = self.as_root(&["pacman", "-Rns"], &orphans);
+        let line = self.as_root(&["pacman", "-Rns", "--"], &orphans);
         self.confirm(
             "orphans",
             "Remove them? Their configuration files go too (no .pacsave), and an orphan can be an optional \
@@ -544,7 +544,7 @@ impl Flow<'_> {
             return Ok(());
         }
         self.show(&restart);
-        let line = self.as_root(&["systemctl", "restart"], &restart);
+        let line = self.as_root(&["systemctl", "restart", "--"], &restart);
         self.confirm("services", "Restart them all?", vec![line])
     }
 
@@ -649,21 +649,21 @@ mod tests {
         let ran: Vec<&str> = f.ran.iter().map(String::as_str).filter(|l| !l.starts_with("checkupdates")).collect();
         assert!(ran.contains(&"paru -Syu"));
         assert!(ran.contains(&"flatpak update"));
-        assert!(ran.contains(&"sudo pacman -Rns orphan1 orphan2"));
+        assert!(ran.contains(&"sudo pacman -Rns -- orphan1 orphan2"));
         assert!(ran.contains(&"flatpak uninstall --unused"));
         assert!(ran.contains(&"sudo paccache -rk3"));
         assert!(!ran.contains(&"sudo paccache -ruk0"), "nothing uninstalled to prune");
         assert!(ran.contains(&"paru -Sc"));
         assert!(ran.contains(&"pacdiff --sudo"));
-        assert!(ran.contains(&"sudo systemctl restart cups.service"));
+        assert!(ran.contains(&"sudo systemctl restart -- cups.service"));
         assert!(ran.contains(&"systemctl reboot"));
         // The order of the steps
         let pos = |l: &str| ran.iter().position(|r| *r == l).unwrap();
         assert!(pos("paru -Syu") < pos("flatpak update"));
-        assert!(pos("flatpak update") < pos("sudo pacman -Rns orphan1 orphan2"));
+        assert!(pos("flatpak update") < pos("sudo pacman -Rns -- orphan1 orphan2"));
         assert!(pos("sudo paccache -rk3") < pos("pacdiff --sudo"));
-        assert!(pos("pacdiff --sudo") < pos("sudo systemctl restart cups.service"));
-        assert!(pos("sudo systemctl restart cups.service") < pos("systemctl reboot"));
+        assert!(pos("pacdiff --sudo") < pos("sudo systemctl restart -- cups.service"));
+        assert!(pos("sudo systemctl restart -- cups.service") < pos("systemctl reboot"));
         // Only the unseen news, saved after the upgrade
         assert!(f.out.contains("New one") && !f.out.contains("Seen one"));
         assert_eq!(f.saved_news.as_deref(), Some("https://archlinux.org/news/new/"));
@@ -713,7 +713,7 @@ mod tests {
                 ["-Syu", "flatpak update", "-Rns", "paccache -r", "-Sc", "pacdiff --sudo", "restart", "reboot"];
             assert!(f.ran.iter().all(|l| !writes.iter().any(|w| l.contains(w))), "{:?}", f.ran);
             assert!(f.out.contains("would run: paru -Syu"));
-            assert!(f.out.contains("would run: sudo pacman -Rns orphan1 orphan2"));
+            assert!(f.out.contains("would run: sudo pacman -Rns -- orphan1 orphan2"));
             assert!(f.out.contains("would run: pacdiff --sudo"));
             assert!(f.out.contains("would run: flatpak uninstall --unused"));
             assert!(f.out.ends_with("paku maintain: done (listing only, nothing was changed)\n"), "{}", f.out);
@@ -746,17 +746,17 @@ mod tests {
         f.answers = vec![true; 6];
         assert_eq!(paku(&mut f, &["maintain"]), 0);
         assert!(f.ran.contains(&"pacman -Syu".to_string()));
-        assert!(f.ran.contains(&"pacman -Rns orphan1 orphan2".to_string()));
+        assert!(f.ran.contains(&"pacman -Rns -- orphan1 orphan2".to_string()));
         assert!(f.ran.contains(&"paccache -rk3".to_string()));
         assert!(f.ran.contains(&"pacdiff".to_string()));
-        assert!(f.ran.contains(&"systemctl restart cups.service".to_string()));
+        assert!(f.ran.contains(&"systemctl restart -- cups.service".to_string()));
         assert!(f.ran.iter().all(|l| !l.starts_with("sudo")), "{:?}", f.ran);
     }
 
     #[test]
     fn a_failed_step_doesnt_stop_the_others() {
         let mut f = busy(ALL);
-        f.codes.insert("sudo pacman -Rns orphan1 orphan2".into(), 1);
+        f.codes.insert("sudo pacman -Rns -- orphan1 orphan2".into(), 1);
         f.codes.insert("pacdiff --sudo".into(), 1);
         f.answers = vec![true; 8];
         assert_eq!(paku(&mut f, &["maintain"]), 2);

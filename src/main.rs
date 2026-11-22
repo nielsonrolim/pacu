@@ -186,10 +186,13 @@ impl paku::Sys for System {
 
     fn lock(&mut self) -> bool {
         // $XDG_RUNTIME_DIR, else /run/user/UID (under sudo or su without the variable), else ~/.cache/paku.
+        // As root, /run: never a file in a directory a user owns (a planted symlink), even under sudo -E.
         // pacman's own lock still guards its database across users
         // SAFETY: geteuid has no preconditions
         let uid = unsafe { libc::geteuid() };
-        let dir = std::env::var_os("XDG_RUNTIME_DIR")
+        let dir = (uid == 0)
+            .then(|| OsString::from("/run"))
+            .or_else(|| std::env::var_os("XDG_RUNTIME_DIR"))
             .map(std::path::PathBuf::from)
             .filter(|d| d.is_absolute() && d.is_dir())
             .or_else(|| Some(std::path::PathBuf::from(format!("/run/user/{uid}"))).filter(|d| d.is_dir()))
@@ -232,8 +235,13 @@ impl paku::Sys for System {
     }
 }
 
-/// Where `maintain` keeps the newest news item it showed: $XDG_STATE_HOME/paku/last-news (~/.local/state).
+/// Where `maintain` keeps the newest news item it showed: $XDG_STATE_HOME/paku/last-news (~/.local/state);
+/// as root, /var/lib/paku/last-news (never a root-owned file in a user's home, even under sudo -E).
 fn news_state() -> Option<std::path::PathBuf> {
+    // SAFETY: geteuid has no preconditions
+    if unsafe { libc::geteuid() } == 0 {
+        return Some(std::path::PathBuf::from("/var/lib/paku/last-news"));
+    }
     let base = std::env::var_os("XDG_STATE_HOME")
         .map(std::path::PathBuf::from)
         .filter(|d| d.is_absolute())
