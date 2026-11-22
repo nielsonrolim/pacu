@@ -105,7 +105,7 @@ fn zsh() -> String {
         (Complete::Installed, packages(&["installed"])),
         (Complete::RepoAndInstalled, packages(&["repo", "installed"])),
         (Complete::Paths, "_files".to_string()),
-        (Complete::MaintainFlags, "_describe -t flags 'cachy-update flag' flags".to_string()),
+        (Complete::MaintainFlags, "_describe -t flags 'maintain flag' flags".to_string()),
         (Complete::UpgradeFlags, "_describe -t flags 'upgrade flag' upflags".to_string()),
         (Complete::Shells, format!("(( CURRENT == 3 )) && compadd -- {}", SHELLS.join(" "))),
     ] {

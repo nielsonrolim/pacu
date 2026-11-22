@@ -4,10 +4,13 @@ mod audit;
 mod commands;
 mod completions;
 mod helper;
+mod maintain;
+mod news;
 mod paku;
 
 use std::ffi::OsString;
 use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
@@ -25,7 +28,11 @@ mod libc {
         pub fn geteuid() -> u32;
         pub fn getpid() -> i32;
         pub fn kill(pid: i32, sig: i32) -> i32;
+        pub fn isatty(fd: i32) -> i32;
+        pub fn flock(fd: i32, operation: i32) -> i32;
     }
+    pub const LOCK_EX: i32 = 2;
+    pub const LOCK_NB: i32 = 4;
 }
 
 /// What SIGINT and SIGQUIT did when paku started: the children get it back (a paku started with them ignored,
@@ -138,6 +145,100 @@ impl paku::Sys for System {
     fn err(&mut self, text: &str) {
         let _ = writeln!(std::io::stderr(), "{text}");
     }
+
+    fn tty(&self) -> bool {
+        // SAFETY: isatty only looks at the descriptor
+        unsafe { libc::isatty(0) == 1 && libc::isatty(1) == 1 }
+    }
+
+    fn ask(&mut self, question: &str, default: bool) -> bool {
+        // No child runs during a question: Ctrl-C gets its default action back, so it ends paku right there
+        // (and a shell around it sees the signal), instead of waiting for Enter
+        let restore = INT_BEFORE.load(Ordering::Relaxed) == libc::SIG_DFL;
+        if restore {
+            // SAFETY: no other thread; back to the default action for the time of the read
+            unsafe { libc::signal(libc::SIGINT, libc::SIG_DFL) };
+        }
+        let answer = loop {
+            print!("{question} {} ", if default { "[Y/n]" } else { "[y/N]" });
+            let _ = std::io::stdout().flush();
+            let mut line = String::new();
+            match std::io::stdin().read_line(&mut line) {
+                // End of input: no
+                Ok(0) | Err(_) => {
+                    println!();
+                    break false;
+                }
+                Ok(_) => match line.trim().to_lowercase().as_str() {
+                    "" => break default,
+                    "y" | "yes" => break true,
+                    "n" | "no" => break false,
+                    _ => println!("Please answer y or n."),
+                },
+            }
+        };
+        if restore {
+            // SAFETY: as in catch
+            unsafe { libc::signal(libc::SIGINT, on_signal as extern "C" fn(i32) as usize) };
+        }
+        answer
+    }
+
+    fn lock(&mut self) -> bool {
+        // $XDG_RUNTIME_DIR, else /run/user/UID (under sudo or su without the variable), else ~/.cache/paku.
+        // pacman's own lock still guards its database across users
+        // SAFETY: geteuid has no preconditions
+        let uid = unsafe { libc::geteuid() };
+        let dir = std::env::var_os("XDG_RUNTIME_DIR")
+            .map(std::path::PathBuf::from)
+            .filter(|d| d.is_absolute() && d.is_dir())
+            .or_else(|| Some(std::path::PathBuf::from(format!("/run/user/{uid}"))).filter(|d| d.is_dir()))
+            .or_else(|| {
+                let dir = std::path::PathBuf::from(std::env::var_os("HOME")?).join(".cache/paku");
+                std::fs::create_dir_all(&dir).ok()?;
+                Some(dir)
+            });
+        // Without a place for it, the run goes on unlocked
+        let Some(dir) = dir else { return true };
+        let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("paku-maintain.lock"))
+        else {
+            return true;
+        };
+        // SAFETY: a valid descriptor; the lock lasts as long as the file stays open, so it's kept until exit
+        let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+        if locked {
+            std::mem::forget(file);
+        }
+        locked
+    }
+
+    fn last_news(&self) -> Option<String> {
+        let text = std::fs::read_to_string(news_state()?).ok()?;
+        Some(text.trim().to_string()).filter(|t| !t.is_empty())
+    }
+
+    fn save_last_news(&mut self, id: &str) {
+        // Best effort: without it, the same news show again next time
+        if let Some(path) = news_state() {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(path, format!("{id}\n"));
+        }
+    }
+
+    fn exists(&self, path: &str) -> bool {
+        Path::new(path).exists()
+    }
+}
+
+/// Where `maintain` keeps the newest news item it showed: $XDG_STATE_HOME/paku/last-news (~/.local/state).
+fn news_state() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .filter(|d| d.is_absolute())
+        .or_else(|| Some(std::path::PathBuf::from(std::env::var_os("HOME")?).join(".local/state")))?;
+    Some(base.join("paku/last-news"))
 }
 
 fn is_executable(path: &Path) -> bool {

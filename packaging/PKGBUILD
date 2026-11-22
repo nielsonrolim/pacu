@@ -18,10 +18,10 @@ optdepends=('paru: AUR packages (search, install, upgrade), the first helper pak
             'yay: AUR packages, when paru is missing or with helper = yay'
             'pikaur: AUR packages, when paru and yay are missing or with helper = pikaur'
             'sudo: install, remove and upgrade without an AUR helper'
-            'flatpak: paku upgrade also upgrades the Flatpaks'
-            'cachy-update: paku maintain and paku check'
-            'curl: paku aur-audit'
-            'pacman-contrib: paku check without an AUR helper (checkupdates)')
+            'flatpak: paku upgrade and paku maintain also upgrade the Flatpaks'
+            'cachy-update: paku maintain and paku check hand off to it'
+            'curl: paku aur-audit and the Arch news in paku maintain'
+            'pacman-contrib: paku check without an AUR helper; caches, pacnew and services in paku maintain')
 source=("$pkgname-$pkgver.tar.xz")
 sha256sums=('SKIP')
 

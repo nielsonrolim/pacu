@@ -36,7 +36,7 @@ pub enum Complete {
     RepoAndInstalled,
     /// Paths on the filesystem.
     Paths,
-    /// The flags `maintain` passes on to cachy-update / arch-update.
+    /// The flags of `maintain`.
     MaintainFlags,
     /// The flags of `upgrade` (`--no-flatpak`).
     UpgradeFlags,
@@ -81,10 +81,10 @@ pub const COMMANDS: &[Command] = &[
         kind: Kind::Maintain,
         name: "maintain",
         aliases: &["cu", "full", "full-upgrade"],
-        usage: "maintain [args]",
-        help: "full Cachy-Update maintenance run (cachy-update)",
+        usage: "maintain",
+        help: "upgrade, then orphans, caches, pacnew, services (cachy-update if installed)",
         needs_args: None,
-        description: "Full Cachy-Update maintenance run (cachy-update)",
+        description: "Upgrade and maintenance: orphans, caches, pacnew, services, kernel",
         complete: Complete::MaintainFlags,
     },
     Command {
@@ -245,14 +245,12 @@ pub const UPGRADE_FLAGS: &[(&str, &str)] = &[("--no-flatpak", "Only the system u
 /// What `paku upgrade` prints (exit 1) for an argument it doesn't take.
 pub const UPGRADE_USAGE: &str = "paku upgrade [--no-flatpak]";
 
-/// The flags of cachy-update / arch-update that `maintain` completes, with their descriptions.
+/// The flags of `paku maintain` (its own flow; cachy-update, when installed, takes `--devel` too), with their
+/// descriptions.
 pub const MAINTAIN_FLAGS: &[(&str, &str)] = &[
-    ("--check", "Check for available updates"),
-    ("--list", "Display the list of pending updates"),
+    ("--dry-run", "Only list what each step would do"),
+    ("--no-flatpak", "Leave Flatpak out"),
     ("--devel", "Include AUR development packages updates"),
-    ("--news", "Display latest Arch news (optionally pass a count)"),
-    ("--services", "Check for services requiring a post upgrade restart"),
-    ("--debug", "Display debug traces"),
 ];
 
 /// The shells `paku completions` prints a script for.
@@ -293,10 +291,10 @@ mod tests {
     #[test]
     fn the_help_is_the_one_of_the_fish_function() {
         // The help of the fish function pak (functions/pak.fish), with the new name, the completions and helper
-        // lines and the --no-flatpak note
+        // lines, the --no-flatpak note and maintain's own flow
         let fish = "Usage:
   paku upgrade             # paru -Syu (and flatpak upgrade if available, unless --no-flatpak)
-  paku maintain [args]     # full Cachy-Update maintenance run (cachy-update)
+  paku maintain            # upgrade, then orphans, caches, pacnew, services (cachy-update if installed)
   paku check               # list pending updates without applying them
   paku update              # paru -Sy (refresh package DB only)
   paku search <pkg>        # paru -Ss <pkg>
