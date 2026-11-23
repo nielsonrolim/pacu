@@ -284,8 +284,7 @@ fn pacman_conf(sys: &mut dyn Sys, key: &str, default: &str) -> Vec<String> {
 /// fd 8"). The `download-*` dirs right in each cache dir, by name (as the user, no sudo: the dirs can't be read,
 /// but the cache dir can). None while pacman holds its lock: a download may be running in one of them.
 pub(crate) fn download_dirs(sys: &mut dyn Sys) -> Vec<(String, usize)> {
-    let db = pacman_conf(sys, "DBPath", "/var/lib/pacman/").remove(0);
-    if sys.exists(&format!("{}/db.lck", db.trim_end_matches('/'))) {
+    if pacman_busy(sys) {
         return Vec::new();
     }
     let mut found = Vec::new();
@@ -303,6 +302,12 @@ pub(crate) fn download_dirs(sys: &mut dyn Sys) -> Vec<(String, usize)> {
         }
     }
     found
+}
+
+/// Whether pacman holds its lock (`<DBPath>/db.lck`): a download may be under way.
+fn pacman_busy(sys: &mut dyn Sys) -> bool {
+    let db = pacman_conf(sys, "DBPath", "/var/lib/pacman/").remove(0);
+    sys.exists(&format!("{}/db.lck", db.trim_end_matches('/')))
 }
 
 /// A `download-*` entry right in `dir`, as find prints it.
@@ -345,6 +350,11 @@ pub(crate) fn clean_download_dirs(sys: &mut dyn Sys, root: bool) -> Cleaned {
     let mut removed = 0;
     let mut failed = false;
     for (dir, _) in found {
+        // Again right before: a pacman may have started while sudo waited for the password, and its new
+        // download dir is still empty
+        if pacman_busy(sys) {
+            break;
+        }
         let mut line = if root { Vec::new() } else { argv(["sudo", "-n"]) };
         line.extend(argv([
             "find",
@@ -488,6 +498,8 @@ pub(crate) mod tests {
         pub(crate) last_news: Option<String>,
         pub(crate) saved_news: Option<String>,
         pub(crate) files: Vec<String>,
+        /// A file that appears when a command line runs (a pacman starting meanwhile, for example).
+        pub(crate) creates: Option<(&'static str, &'static str)>,
     }
 
     pub(crate) fn line(argv: &[OsString]) -> String {
@@ -500,6 +512,9 @@ pub(crate) mod tests {
             self.ran.push(l.clone());
             if self.interrupt_on == Some(l.as_str()) {
                 self.interrupted = true;
+            }
+            if let Some((_, file)) = self.creates.filter(|(when, _)| *when == l) {
+                self.files.push(file.to_string());
             }
             self.codes.get(&l).copied().unwrap_or(0)
         }
@@ -670,6 +685,16 @@ pub(crate) mod tests {
         paku(&mut f, &["clean"]);
         assert!(!f.ran.iter().any(|l| l.starts_with("find") || l.starts_with("sudo -")), "{:?}", f.ran);
         assert_eq!(f.ran.last().unwrap(), "sudo pacman -Sc");
+    }
+
+    #[test]
+    fn a_pacman_started_while_sudo_asked_keeps_its_download_dir() {
+        let mut f = leftovers(&[], "/var/cache/pacman/pkg/download-aB3xYz\n");
+        f.creates = Some(("sudo -v", "/var/lib/pacman/db.lck"));
+        paku(&mut f, &["clean"]);
+        assert!(f.ran.contains(&"sudo -v".to_string()));
+        assert!(!f.ran.iter().any(|l| l.contains("-delete")), "{:?}", f.ran);
+        assert_eq!((f.out.as_str(), f.err.as_str()), ("", ""));
     }
 
     #[test]
