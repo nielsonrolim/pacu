@@ -278,6 +278,7 @@ fn pacman_conf(sys: &mut dyn Sys, key: &str, default: &str) -> Vec<String> {
     }
 }
 
+/// Until pacman fixes #297 (https://gitlab.archlinux.org/pacman/pacman/-/issues/297):
 /// pacman 7 downloads as the `alpm` user (DownloadUser) into a `download-XXXXXX` dir it makes in the cache dir,
 /// and a `pacman -U` of a local file (how paru and yay install an AUR package) leaves that dir behind, empty and
 /// readable only by alpm; `pacman -Sc` then stops on it ("could not open file …/download-XXXXXX: Error reading

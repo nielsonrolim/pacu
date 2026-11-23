@@ -8,6 +8,7 @@
   /var/cache/pacman/pkg/download-XXXXXX: Error reading fd 8`. Only empty ones go (`find -empty -delete`, through
   `sudo`), in every `CacheDir` of `pacman-conf`, and nothing is touched while pacman's `db.lck` exists. One
   line says how many were removed.
+  This stays until pacman fixes [#297](https://gitlab.archlinux.org/pacman/pacman/-/issues/297) (a regression of 7.1).
 
 ## 0.3.3 (2026-11-23)
 
