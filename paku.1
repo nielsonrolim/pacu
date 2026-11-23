@@ -161,7 +161,9 @@ First removes the empty
 .I download\-*
 directories pacman 7 leaves in the cache directories
 .RB ( "pacman\-conf CacheDir" )
-after installing a local package file (how the AUR helpers install), which make
+after installing a local package file (how the AUR helpers install), and in the
+.I sync
+directory of the database after a failed sync, which make
 .B \-Sc
 fail with "Error reading fd 8"; through
 .B sudo

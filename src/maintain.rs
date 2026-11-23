@@ -478,13 +478,13 @@ impl Flow<'_> {
         Ok(())
     }
 
-    /// The empty download dirs pacman 7 leaves in the cache (see `paku::download_dirs`): removed with no question,
+    /// The empty download dirs pacman 7 leaves behind (see `paku::download_dirs`): removed with no question,
     /// they're pacman's own leftovers, and `pacman -Sc` stops on them.
     fn download_dirs(&mut self) -> Step {
         if self.listing {
             let count: usize = paku::download_dirs(self.sys).iter().map(|(_, n)| n).sum();
             if count > 0 {
-                self.note(&format!("would remove the empty ones of {count} download dir(s) pacman left in the cache"));
+                self.note(&format!("would remove the empty ones of {count} download dir(s) pacman left behind"));
             }
             return Ok(());
         }
@@ -917,7 +917,7 @@ mod tests {
         let at = |l: &str| f.ran.iter().position(|r| r == l).unwrap_or_else(|| panic!("{l}: {:?}", f.ran));
         assert!(at(&format!("sudo -n {DELETE}")) < at("paccache -dk3"));
         assert!(
-            f.out.contains(":: Package cache\n  Removed 1 empty download dir(s) pacman left in the package cache.\n"),
+            f.out.contains(":: Package cache\n  Removed 1 empty download dir(s) pacman left behind.\n"),
             "{}",
             f.out
         );
@@ -926,11 +926,7 @@ mod tests {
         add_leftovers(&mut f, "/var/cache/pacman/pkg/download-aB3xYz\n");
         paku(&mut f, &["maintain", "--dry-run"]);
         assert!(!f.ran.iter().any(|l| l.contains("-delete") || l == "sudo -v"), "{:?}", f.ran);
-        assert!(
-            f.out.contains("would remove the empty ones of 2 download dir(s) pacman left in the cache"),
-            "{}",
-            f.out
-        );
+        assert!(f.out.contains("would remove the empty ones of 2 download dir(s) pacman left behind"), "{}", f.out);
     }
 
     #[test]
