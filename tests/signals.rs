@@ -19,11 +19,20 @@ extern "C" {
 
 const SIGINT: i32 = 2;
 
+/// One case at a time: as root (the CI's container) the lock is the system's /run/paku-maintain.lock, which two
+/// cases running at once would share.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+/// The upgrade: prints "transferring" and waits, exiting 130 on SIGINT like pacman.
+const TRANSFER: &str = "trap 'exit 130' INT\necho transferring\n/bin/sleep 30 &\nwait\n";
+
 struct Run {
     child: Child,
     master: File,
     output: Arc<Mutex<Vec<u8>>>,
     _dir: TempDir,
+    /// Last: the next case waits until this one's folder is gone
+    _one: std::sync::MutexGuard<'static, ()>,
 }
 
 /// A folder removed at the end, under the target dir (never /tmp).
@@ -41,21 +50,22 @@ fn script(dir: &Path, name: &str, body: &str) {
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// `paku maintain --no-flatpak` with one pending package; the fake `sudo pacman -Syu` prints "transferring"
-/// and waits, exiting 130 on SIGINT like pacman.
+/// `paku maintain --no-flatpak` with one pending package; the upgrade (`sudo pacman -Syu`, or `pacman -Syu` as
+/// root) is the TRANSFER.
 fn start(name: &str) -> Run {
+    let one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("signals-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     let bin = dir.join("bin");
     for d in [&bin, &dir.join("run"), &dir.join("state"), &dir.join("home")] {
         fs::create_dir_all(d).unwrap();
     }
-    script(&bin, "pacman", "[ \"$1\" = -Qu ] && echo 'foo 1-1 -> 2-1'\nexit 0\n");
     script(
         &bin,
-        "sudo",
-        "if [ \"$2\" = -Syu ]; then\n  trap 'exit 130' INT\n  echo transferring\n  /bin/sleep 30 &\n  wait\nfi\nexit 0\n",
+        "pacman",
+        &format!("[ \"$1\" = -Qu ] && echo 'foo 1-1 -> 2-1'\nif [ \"$1\" = -Syu ]; then\n{TRANSFER}fi\nexit 0\n"),
     );
+    script(&bin, "sudo", &format!("if [ \"$2\" = -Syu ]; then\n{TRANSFER}fi\nexit 0\n"));
     let (mut m, mut s) = (0, 0);
     // SAFETY: openpty fills the two descriptors; null name, termios and winsize are allowed
     assert_eq!(unsafe { openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) }, 0);
@@ -84,7 +94,7 @@ fn start(name: &str) -> Run {
             sink.lock().unwrap().extend_from_slice(&buf[..n]);
         }
     });
-    Run { child, master, output, _dir: TempDir(dir) }
+    Run { child, master, output, _dir: TempDir(dir), _one: one }
 }
 
 impl Run {
