@@ -70,7 +70,8 @@ Every command runs directly, as an argument list (never through a shell), and pa
 ## Requirements
 
 - `pacman` (Arch or an Arch-derived distro)
-- optional: an AUR helper, [`paru`](https://github.com/Morganamilo/paru), [`yay`](https://github.com/Jguer/yay) or [`pikaur`](https://github.com/actionless/pikaur), `flatpak` (`paku upgrade` also runs `flatpak upgrade`), `curl` (`paku aur-audit`, the news in `paku maintain`), `pacman-contrib` and `fakeroot` (`checkupdates` for `paku check` without a helper and in `paku maintain`; `paccache` and `pacdiff` in `paku maintain`), `archlinux-contrib` (`checkservices` in `paku maintain`), [`cachy-update`](https://github.com/CachyOS/cachy-update) (`paku maintain` and `paku check` hand off to it)
+- dependencies of the package, for the full flow of `paku maintain` and `paku check`: `pacman-contrib` and `fakeroot` (`checkupdates`; `paccache` and `pacdiff`), `archlinux-contrib` (`checkservices`) and `curl` (the news, `paku aur-audit`)
+- optional: an AUR helper, [`paru`](https://github.com/Morganamilo/paru), [`yay`](https://github.com/Jguer/yay) or [`pikaur`](https://github.com/actionless/pikaur), `flatpak` (`paku upgrade` also runs `flatpak upgrade`), `sudo` (without a helper), [`cachy-update`](https://github.com/CachyOS/cachy-update) (`paku maintain` and `paku check` hand off to it)
 
 ## Install
 
@@ -135,7 +136,7 @@ With [`cachy-update`](https://github.com/CachyOS/cachy-update) installed, it run
 9. after an upgrade, the services running old libraries (`checkservices`, from archlinux-contrib), restarted all or none; the display managers (with the unit behind `display-manager.service`), the service of the login session paku runs in (its PAM service: `greetd`, `sshd`…), D-Bus, logind, the network services, the gettys and `user@` units are only named, never restarted;
 10. when the running kernel is no longer installed, an offer to reboot.
 
-Steps 4 to 10 ask `[y/N]`: a plain Enter keeps everything. A step whose tool is missing (`curl`, `flatpak`, `pacman-contrib`, `archlinux-contrib`) is skipped with a note. Without a terminal, or with `--dry-run`, every step only lists what it would do, the upgrade included. `--no-flatpak` leaves Flatpak out, and `--devel` is passed to the helper. paku never passes `--noconfirm`.
+Steps 4 to 10 ask `[y/N]`: a plain Enter keeps everything. The tools come with paku's dependencies; Flatpak is optional, and a step whose tool is missing anyway is skipped with a note naming the package to install. Without a terminal, or with `--dry-run`, every step only lists what it would do, the upgrade included. `--no-flatpak` leaves Flatpak out, and `--devel` is passed to the helper. paku never passes `--noconfirm`.
 
 The last line says how it went: `paku maintain: done`, `paku maintain: done, 1 step failed (orphans)` or `paku maintain: stopped (Ctrl-C)`, followed by `; reboot recommended (…)` when a new kernel wasn't booted or services were kept running on old files (said once, for both). As root, the lock is `/run/paku-maintain.lock` and the news state `/var/lib/paku/last-news`. Exit codes: 0 done (including steps skipped or answered no), 1 bad usage, 2 a step failed (the next steps still ran), 17 another `paku maintain` is running, 130 Ctrl-C (which stops the flow at once: at a question or during a command, paku prints `paku maintain: stopped (Ctrl-C)` and then dies of SIGINT itself, so a shell running it stops too and reports 130; a script that wants to carry on has to `trap : INT`, not ignore SIGINT; a Ctrl-C during the package transfer is handled by pacman, through sudo, and a calling script sees exit 130). When the upgrade fails, the steps that remove or restart something are skipped, and only the information steps run. With `cachy-update`, its own codes.
 
@@ -180,7 +181,7 @@ paku aur                    # AUR / foreign packages (pacman -Qm)
 paku aur-audit
 ```
 
-Fetches the [Arch Linux AUR compromised-package list](https://md.archlinux.org/s/SxbqukK6IA) with `curl` and compares it against your installed AUR/foreign packages (`pacman -Qmq`). It prints a summary and, if any installed package is on the list, a `WARNING:` block naming them. Exit codes: 0 when nothing matches (or no AUR package is installed); 1 when a package matches, when the list can't be fetched or when `curl` is missing.
+Fetches the [Arch Linux AUR compromised-package list](https://md.archlinux.org/s/SxbqukK6IA) with `curl` and compares it against your installed AUR/foreign packages (`pacman -Qmq`). It prints a summary and, if any installed package is on the list, a `WARNING:` block naming them. Exit codes: 0 when nothing matches (or no AUR package is installed); 1 when a package matches, when the list can't be fetched or when `curl` is missing (a dependency of the package).
 
 ### Clean the cache and remove orphans
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 (2026-11-23)
+
+- The tools of `paku maintain`'s and `paku check`'s full flow are now dependencies of the package:
+  `pacman-contrib` (checkupdates, paccache, pacdiff), `fakeroot` (checkupdates needs it), `archlinux-contrib`
+  (checkservices) and `curl` (the news, `paku aur-audit`). The AUR helpers, `flatpak`, `cachy-update` and
+  `sudo` stay optional. A step whose tool is missing anyway says which package to install.
+
 ## 0.3.1 (2026-11-22)
 
 - `paku maintain`: a Ctrl-C at a question now prints `paku maintain: stopped (Ctrl-C)` and shows the cursor

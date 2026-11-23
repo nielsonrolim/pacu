@@ -280,7 +280,7 @@ fn complete(args: &[OsString], sys: &mut dyn Sys) -> i32 {
 /// Checks the installed AUR (foreign) packages against the published compromised list.
 fn aur_audit(sys: &mut dyn Sys) -> i32 {
     if !sys.has("curl") {
-        sys.out("curl is required to fetch the compromised package list. Install it with:\n  paku install curl\n");
+        sys.out("curl not found: it fetches the compromised package list (paku depends on curl; install it: sudo pacman -S curl)\n");
         return 1;
     }
     let list = sys
@@ -703,7 +703,7 @@ pub(crate) mod tests {
         // No curl
         let mut f = with(&[]);
         assert_eq!(paku(&mut f, &["aur-audit"]), 1);
-        assert!(f.out.starts_with("curl is required"));
+        assert!(f.out.starts_with("curl not found"));
         // No network
         let mut f = with(&["curl"]);
         f.outputs.insert(CURL.into(), (6, String::new()));

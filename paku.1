@@ -1,4 +1,4 @@
-.TH PAKU 1 2026-11-22 "paku 0.3.1" "User Commands"
+.TH PAKU 1 2026-11-22 "paku 0.3.2" "User Commands"
 .SH NAME
 paku \- a small package-management wrapper around an AUR helper and pacman
 .SH SYNOPSIS
@@ -74,7 +74,8 @@ Every step but the upgrade asks [y/N].
 The last line says how it went, and ends with
 .I "; reboot recommended (...)"
 when a new kernel wasn't booted or services were kept running on old files.
-A step whose tool is missing is skipped with a note.
+The tools of the flow come with paku's dependencies (pacman\-contrib, fakeroot, archlinux\-contrib, curl);
+a step whose tool is missing anyway is skipped with a note naming the package to install.
 Without a terminal, or with
 .BR \-\-dry\-run ,
 every step only lists what it would do, the upgrade included.
