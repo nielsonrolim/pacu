@@ -79,16 +79,12 @@ Every command runs directly, as an argument list (never through a shell), and pa
 
 paku is built on the openSUSE Build Service, in the same repository as [Swaydesk](https://swaydesk.nielsonrolim.com/en-us/install/), for Arch and its derivatives (CachyOS, EndeavourOS, Manjaro…). On Swaydesk's Arch install it's already there: `swaydesk-desktop` brings it. The package also installs the man page and the bash, zsh and fish completions, and pacman updates it with the rest of the system.
 
-These are the same steps as the Arch tab of Swaydesk's install page.
+These are the same steps as the Arch tab of Swaydesk's install page. Each one works as it is in bash, zsh and fish.
 
 1. Add the repository to the end of `/etc/pacman.conf` (only once):
 
    ```sh
-   sudo tee -a /etc/pacman.conf <<'EOF'
-
-   [home_nielsonrolim_Arch]
-   Server = https://download.opensuse.org/repositories/home:/nielsonrolim/Arch/$arch
-   EOF
+   printf '\n[home_nielsonrolim_Arch]\nServer = https://download.opensuse.org/repositories/home:/nielsonrolim/Arch/$arch\n' | sudo tee -a /etc/pacman.conf >/dev/null
    ```
 
 2. Download the repository key:
@@ -108,7 +104,7 @@ These are the same steps as the Arch tab of Swaydesk's install page.
 4. Add the key to pacman's keyring and sign it locally, so pacman trusts it. The command checks the key again first and refuses any other:
 
    ```sh
-   [ "$(gpg --show-keys --with-colons ~/swaydesk.key | grep -E '^(pub|sub|fpr):' | cut -d: -f1,10 | tr '\n' ' ')" = 'pub: fpr:71A5E6CB39B9844E42CE42D35815F0B65BE1CFB9 ' ] &&
+   gpg --show-keys --with-colons ~/swaydesk.key | grep -E '^(pub|sub|fpr):' | cut -d: -f1,10 | tr '\n' ' ' | grep -qx 'pub: fpr:71A5E6CB39B9844E42CE42D35815F0B65BE1CFB9 ' &&
    sudo pacman-key --add ~/swaydesk.key &&
    sudo pacman-key --lsign-key 71A5E6CB39B9844E42CE42D35815F0B65BE1CFB9 &&
    rm ~/swaydesk.key
