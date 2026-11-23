@@ -58,6 +58,10 @@ const SESSION_AND_NETWORK: &[&str] = &[
 /// paku there).
 const KEEP_PREFIXES: &[&str] = &["dbus", "user@", "getty@", "serial-getty@", "container-getty@"];
 
+/// The services check: -R only lists (it restarts nothing; paku restarts what's left after its own y/N; never
+/// -a), -P: no pacdiff (its own step ran), -F: no failed list (its own step too).
+const CHECKSERVICES_WORDS: [&str; 4] = ["checkservices", "-F", "-P", "-R"];
+
 /// The journal size from which the flow mentions it.
 const JOURNAL_WARN_BYTES: f64 = 1024.0 * 1024.0 * 1024.0;
 
@@ -86,8 +90,10 @@ fn options(args: &[OsString]) -> Option<Options> {
 enum Upgrade {
     /// Done (or nothing to do); `changed` when packages were upgraded.
     Done { changed: bool },
-    /// Answered no, or only listed.
+    /// Answered no.
     Skipped,
+    /// Only listed; `packages` when the system upgrade would run (and the services check after it).
+    Listed { packages: bool },
     /// The system upgrade failed.
     Failed,
 }
@@ -177,6 +183,8 @@ impl Flow<'_> {
         self.journal()?;
         if changed {
             self.services()?;
+        } else if upgrade == (Upgrade::Listed { packages: true }) {
+            self.services_listed();
         }
         self.kernel()
     }
@@ -371,7 +379,7 @@ impl Flow<'_> {
             if let Some(line) = &flatpak {
                 self.would(line);
             }
-            return Ok(Upgrade::Skipped);
+            return Ok(Upgrade::Listed { packages });
         }
         let mut changed = false;
         if packages {
@@ -526,10 +534,9 @@ impl Flow<'_> {
             return Ok(());
         }
         let ignored = self.session_units()?;
-        // -R: only list (it restarts nothing; paku restarts what's left after its own y/N; never -a), -P: no
-        // pacdiff (its own step ran), -F: no failed list (its own step too). No -i: the units kept running are
-        // filtered here, so they can still be named (with a reboot hint) instead of disappearing
-        let words = ["checkservices", "-F", "-P", "-R"];
+        // No -i: the units kept running are filtered here, so they can still be named (with a reboot hint)
+        // instead of disappearing
+        let words = CHECKSERVICES_WORDS;
         // A question left waiting can outlast sudo's timestamp: sudo -v asks for the password again here, on the
         // terminal, since the sudo -n below can only fail. If it fails or is cancelled, the -n below gives the
         // message. (The other root steps run sudo without -n, so it asks itself.)
@@ -596,6 +603,20 @@ impl Flow<'_> {
         Ok(())
     }
 
+    /// The services step of a listing whose upgrade would run: checkservices only means something after the
+    /// upgrade, so it says what would run then instead of running it now (as sudo -n, it would fail or list
+    /// what an earlier upgrade left).
+    fn services_listed(&mut self) {
+        self.title("Services to restart");
+        if !self.sys.has("checkservices") {
+            self.missing("checkservices", "archlinux-contrib");
+            return;
+        }
+        let line = self.as_root(&CHECKSERVICES_WORDS, &[]);
+        self.would(&line);
+        self.note("after the upgrade, then it asks before restarting the services it lists");
+    }
+
     fn recommend_reboot(&mut self, reason: &'static str) {
         if !self.reboot.contains(&reason) {
             self.reboot.push(reason);
@@ -628,6 +649,17 @@ impl Flow<'_> {
         Ok(units)
     }
 
+    /// The reboot: from a session on a local seat, as the user (logind lets the active local session reboot
+    /// without a password); without a seat (ssh, a container console, no session), polkit would ask for a
+    /// password with no agent to answer and time out, so through sudo.
+    fn reboot_line(&mut self) -> Step<Vec<OsString>> {
+        let seat = self.query(argv(["loginctl", "show-session", "auto", "-p", "Seat", "--value"]))?;
+        if self.backend.root || seat.first().is_some_and(|s| !s.trim().is_empty()) {
+            return Ok(argv(["systemctl", "reboot"]));
+        }
+        Ok(argv(["sudo", "systemctl", "reboot"]))
+    }
+
     fn kernel(&mut self) -> Step {
         let release = self.query(argv(["uname", "-r"]))?.into_iter().next().unwrap_or_default();
         if release.is_empty() || !release.chars().all(|c| c.is_ascii_graphic() && c != '/') {
@@ -643,7 +675,8 @@ impl Flow<'_> {
         self.title("Kernel");
         self.note(&format!("the running kernel ({release}) is no longer installed: reboot to use the new one"));
         if !self.listing && self.ask("Reboot now?", false)? {
-            let code = self.sys.run(&argv(["systemctl", "reboot"]));
+            let line = self.reboot_line()?;
+            let code = self.sys.run(&line);
             if self.ran("reboot", code)? {
                 return Ok(());
             }
@@ -715,8 +748,11 @@ mod tests {
         // greetd behind the alias (already in the list) and a session over ssh
         o.insert(ALIAS.into(), (0, "greetd.service\n".into()));
         o.insert(SESSION.into(), (0, "sshd\n".into()));
+        o.insert(SEAT.into(), (0, "seat0\n".into()));
         f
     }
+
+    const SEAT: &str = "loginctl show-session auto -p Seat --value";
 
     const ALIAS: &str = "systemctl show -p Id --value display-manager.service";
     const SESSION: &str = "loginctl show-session auto -p Service --value";
@@ -899,6 +935,48 @@ mod tests {
             assert_eq!(f.saved_news, None);
             assert_eq!(f.out.contains("no terminal"), !tty);
         }
+    }
+
+    #[test]
+    fn without_a_seat_the_reboot_goes_through_sudo() {
+        // Over ssh (or with no session at all) polkit would ask with no agent and time out
+        for seat in [Some(""), None] {
+            let mut f = busy(ALL);
+            match seat {
+                Some(s) => f.outputs.insert(SEAT.into(), (0, format!("{s}\n"))),
+                None => f.outputs.remove(SEAT),
+            };
+            f.answers = vec![true; 8];
+            paku(&mut f, &["maintain"]);
+            assert!(f.ran.contains(&"sudo systemctl reboot".to_string()), "{seat:?}: {:?}", f.ran);
+            assert!(!f.ran.contains(&"systemctl reboot".to_string()));
+        }
+        // On a local seat, as the user (logind allows it without a password)
+        let mut f = busy(ALL);
+        f.answers = vec![true; 8];
+        paku(&mut f, &["maintain"]);
+        assert!(f.ran.contains(&"systemctl reboot".to_string()), "{:?}", f.ran);
+        assert!(!f.ran.contains(&"sudo systemctl reboot".to_string()));
+    }
+
+    #[test]
+    fn a_listing_names_the_services_check_when_the_upgrade_would_run() {
+        let mut f = busy(ALL);
+        assert_eq!(paku(&mut f, &["maintain", "--dry-run"]), 0);
+        assert!(f.out.contains(":: Services to restart\n  would run: sudo checkservices -F -P -R\n"), "{}", f.out);
+        // Only listed: checkservices itself doesn't run before the upgrade
+        assert!(f.ran.iter().all(|l| !l.contains("checkservices")), "{:?}", f.ran);
+        // Without checkservices, the line that says which package to install
+        let mut f = busy(&ALL.iter().copied().filter(|p| *p != "checkservices").collect::<Vec<_>>());
+        paku(&mut f, &["maintain", "--dry-run"]);
+        assert!(f.out.contains("skipped: checkservices not found (paku depends on archlinux-contrib"), "{}", f.out);
+        // Nothing to upgrade: no services step, as in a real run
+        let mut f = busy(&ALL.iter().copied().filter(|p| *p != "flatpak").collect::<Vec<_>>());
+        f.outputs.insert("checkupdates".into(), (2, String::new()));
+        f.outputs.insert("paru -Qua".into(), (1, String::new()));
+        paku(&mut f, &["maintain", "--dry-run"]);
+        assert!(f.out.contains("nothing to upgrade"), "{}", f.out);
+        assert!(!f.out.contains("Services to restart"), "{}", f.out);
     }
 
     #[test]

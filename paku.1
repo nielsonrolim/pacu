@@ -1,4 +1,4 @@
-.TH PAKU 1 2026-11-22 "paku 0.3.2" "User Commands"
+.TH PAKU 1 2026-11-23 "paku 0.3.3" "User Commands"
 .SH NAME
 paku \- a small package-management wrapper around an AUR helper and pacman
 .SH SYNOPSIS
@@ -69,7 +69,9 @@ all or none, never the display managers (with the unit behind
 the service of the current login session, D\-Bus, logind, the network services, the gettys or
 .I user@
 units;
-and a reboot when the running kernel is no longer installed.
+and a reboot when the running kernel is no longer installed
+(as the user from a session on a local seat; without one, over ssh for example, through
+.BR "sudo systemctl reboot" ).
 Every step but the upgrade asks [y/N].
 The last line says how it went, and ends with
 .I "; reboot recommended (...)"
@@ -78,7 +80,8 @@ The tools of the flow come with paku's dependencies (pacman\-contrib, fakeroot, 
 a step whose tool is missing anyway is skipped with a note naming the package to install.
 Without a terminal, or with
 .BR \-\-dry\-run ,
-every step only lists what it would do, the upgrade included.
+every step only lists what it would do, the upgrade included; the services check, which only means
+something after the upgrade, is listed as the command it would run then.
 .B \-\-no\-flatpak
 leaves Flatpak out;
 .B \-\-devel

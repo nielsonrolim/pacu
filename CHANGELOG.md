@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 (2026-11-23)
+
+- `paku maintain`: "Reboot now?" from a session without a local seat (ssh, for example) reboots through
+  `sudo systemctl reboot`. A plain `systemctl reboot` asked polkit for a password with no agent to answer it
+  and timed out. From a local session it stays `systemctl reboot`, as the user.
+- `paku maintain --dry-run` (and the listing without a terminal) now shows the services step when the upgrade
+  would run: the `checkservices` command it would run after the upgrade, or the note naming the package when
+  `checkservices` is missing. Before, the step didn't appear at all.
+
 ## 0.3.2 (2026-11-23)
 
 - The tools of `paku maintain`'s and `paku check`'s full flow are now dependencies of the package:
