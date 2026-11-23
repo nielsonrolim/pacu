@@ -280,7 +280,7 @@ fn complete(args: &[OsString], sys: &mut dyn Sys) -> i32 {
 /// Checks the installed AUR (foreign) packages against the published compromised list.
 fn aur_audit(sys: &mut dyn Sys) -> i32 {
     if !sys.has("curl") {
-        sys.out("curl not found: it fetches the compromised package list (paku depends on curl; reinstall it: sudo pacman -S curl)\n");
+        sys.out("curl not found: it fetches the compromised package list (paku depends on curl; install it: sudo pacman -S curl)\n");
         return 1;
     }
     let list = sys

@@ -270,7 +270,7 @@ impl Flow<'_> {
 
     /// A tool of one of paku's dependencies that isn't there anyway (a broken install, a PATH without it).
     fn missing(&mut self, tool: &str, package: &str) {
-        self.skip(&format!("{tool} not found (paku depends on {package}; reinstall it: sudo pacman -S {package})"));
+        self.skip(&format!("{tool} not found (paku depends on {package}; install it: sudo pacman -S {package})"));
     }
 
     fn show(&mut self, items: &[String]) {
@@ -909,16 +909,15 @@ mod tests {
         f.answers = vec![true, true, false];
         assert_eq!(paku(&mut f, &["maintain"]), 0);
         assert!(f.ran.contains(&"sudo pacman -Syu".to_string()));
-        // They're dependencies of the package: missing anyway, each step says which package to reinstall
+        // They're dependencies of the package: missing anyway, each step says which package to install
         for (tool, package) in [
             ("curl", "curl"),
             ("paccache", "pacman-contrib"),
             ("pacdiff", "pacman-contrib"),
             ("checkservices", "archlinux-contrib"),
         ] {
-            let note = format!(
-                "skipped: {tool} not found (paku depends on {package}; reinstall it: sudo pacman -S {package})"
-            );
+            let note =
+                format!("skipped: {tool} not found (paku depends on {package}; install it: sudo pacman -S {package})");
             assert!(f.out.contains(&note), "{note}\n{}", f.out);
         }
         assert!(!f.out.contains("Unused Flatpak"));
