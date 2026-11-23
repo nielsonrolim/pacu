@@ -75,7 +75,54 @@ Every command runs directly, as an argument list (never through a shell), and pa
 
 ## Install
 
-From source, with Rust's `cargo`:
+### From the repository (recommended)
+
+paku is built on the openSUSE Build Service, in the same repository as [Swaydesk](https://swaydesk.nielsonrolim.com/en-us/install/), for Arch and its derivatives (CachyOS, EndeavourOS, Manjaro…). On Swaydesk's Arch install it's already there: `swaydesk-desktop` brings it. The package also installs the man page and the bash, zsh and fish completions, and pacman updates it with the rest of the system.
+
+These are the same steps as the Arch tab of Swaydesk's install page.
+
+1. Add the repository to the end of `/etc/pacman.conf` (only once):
+
+   ```sh
+   sudo tee -a /etc/pacman.conf <<'EOF'
+
+   [home_nielsonrolim_Arch]
+   Server = https://download.opensuse.org/repositories/home:/nielsonrolim/Arch/$arch
+   EOF
+   ```
+
+2. Download the repository key:
+
+   ```sh
+   curl -fsSL https://download.opensuse.org/repositories/home:/nielsonrolim/Arch/x86_64/home_nielsonrolim_Arch.key -o ~/swaydesk.key
+   ```
+
+3. Show the downloaded key's fingerprint:
+
+   ```sh
+   gpg --show-keys ~/swaydesk.key
+   ```
+
+   Exactly one key must show up (one `pub` line, no `sub` line), with this fingerprint right under `pub`: `71A5E6CB39B9844E42CE42D35815F0B65BE1CFB9`. If it's different, stop here and don't go on. The project's key on OBS: RSA, 4096 bits, valid until 2029-01-23.
+
+4. Add the key to pacman's keyring and sign it locally, so pacman trusts it. The command checks the key again first and refuses any other:
+
+   ```sh
+   [ "$(gpg --show-keys --with-colons ~/swaydesk.key | grep -E '^(pub|sub|fpr):' | cut -d: -f1,10 | tr '\n' ' ')" = 'pub: fpr:71A5E6CB39B9844E42CE42D35815F0B65BE1CFB9 ' ] &&
+   sudo pacman-key --add ~/swaydesk.key &&
+   sudo pacman-key --lsign-key 71A5E6CB39B9844E42CE42D35815F0B65BE1CFB9 &&
+   rm ~/swaydesk.key
+   ```
+
+5. Install paku. `-Syu`, not `-Sy`: on Arch, syncing the databases without upgrading is a partial upgrade.
+
+   ```sh
+   sudo pacman -Syu paku
+   ```
+
+### From source
+
+With Rust's `cargo`:
 
 ```sh
 git clone https://github.com/nielsonrolim/paku.git
@@ -87,7 +134,7 @@ sudo install -Dm644 paku.1 /usr/local/share/man/man1/paku.1
 
 ### Shell completions
 
-`paku completions bash|zsh|fish` prints the completion script. Package names come from the repos (`install`, `search`), the installed packages (`remove`, `files`) or both (`info`); `owns` completes paths.
+The package from the repository already installs them; this is for a build from source. `paku completions bash|zsh|fish` prints the completion script. Package names come from the repos (`install`, `search`), the installed packages (`remove`, `files`) or both (`info`); `owns` completes paths.
 
 ```sh
 paku completions bash | sudo tee /usr/share/bash-completion/completions/paku >/dev/null
