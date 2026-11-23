@@ -4,10 +4,11 @@
 
 - `paku clean` and the cache step of `paku maintain` first remove the empty `download-*` directories pacman 7
   (`DownloadUser = alpm`) leaves in the cache directory after installing a local package file, which is how
-  paru and yay install an AUR package. `pacman -Sc` stopped on them with `could not open file
-  /var/cache/pacman/pkg/download-XXXXXX: Error reading fd 8`. Only empty ones go (`find -empty -delete`, through
+  paru and yay install an AUR package, so one more piles up at every AUR install. Only empty ones go (`find -empty -delete`, through
   `sudo`), in every `CacheDir` of `pacman-conf` and in `<DBPath>/sync` (where a failed database sync can leave one), and nothing is touched while pacman's `db.lck` exists. One
-  line says how many were removed.
+  line says how many were removed. A `download-*` directory with a file in it (an interrupted download) is kept;
+  that is the one `pacman -Sc` reports with `could not open file …/download-XXXXXX: Error reading fd 8`, and it
+  can be removed by hand once no pacman is running.
   This stays until pacman fixes [#297](https://gitlab.archlinux.org/pacman/pacman/-/issues/297).
 
 ## 0.3.3 (2026-11-23)

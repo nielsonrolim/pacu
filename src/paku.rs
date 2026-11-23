@@ -282,7 +282,8 @@ fn pacman_conf(sys: &mut dyn Sys, key: &str, default: &str) -> Vec<String> {
 /// pacman 7 downloads as the `alpm` user (DownloadUser) into a `download-XXXXXX` dir it makes in the cache dir,
 /// and a `pacman -U` of a local file (how paru and yay install an AUR package) leaves that dir behind, empty and
 /// not readable by the user (the owner varies: alpm, or another UID when a chroot shares the cache, so it isn't
-/// checked); `pacman -Sc` then stops on it ("could not open file …/download-XXXXXX: Error reading fd 8"). A failed
+/// checked), one more at every AUR install. (`pacman -Sc`'s "could not open file …/download-XXXXXX: Error reading
+/// fd 8" comes from a non-empty one, an interrupted download, which we never touch.) A failed
 /// database sync can leave one in `<DBPath>/sync` too. The `download-*` dirs right in each cache dir and in the
 /// sync dir, by name (as the user, no sudo: the dirs can't be read, but their parents can). None while pacman
 /// holds its lock: a download may be running in one of them.

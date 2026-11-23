@@ -233,7 +233,7 @@ paku clean
 paku autoremove
 ```
 
-`clean` first removes the empty `download-*` directories that pacman 7 leaves in the cache directories (`pacman-conf CacheDir`) after installing a local package file, which is how the AUR helpers install (and in `/var/lib/pacman/sync` after a failed database sync); `pacman -Sc` fails on them with `could not open file …/download-XXXXXX: Error reading fd 8`. It does that through `sudo` (not as root), leaves any directory with a file in it (a download under way), does nothing while pacman's `db.lck` exists, and prints one line when it removed something. This works around [pacman #297](https://gitlab.archlinux.org/pacman/pacman/-/issues/297) until pacman fixes it.
+`clean` first removes the empty `download-*` directories that pacman 7 leaves in the cache directories (`pacman-conf CacheDir`) after installing a local package file, which is how the AUR helpers install (and in `/var/lib/pacman/sync` after a failed database sync), one more at every AUR install. It does that through `sudo` (not as root), leaves any directory with a file in it (a download under way or interrupted: that is the one `pacman -Sc` reports with `could not open file …/download-XXXXXX: Error reading fd 8`, to remove by hand once no pacman is running), does nothing while pacman's `db.lck` exists, and prints one line when it removed something. This works around [pacman #297](https://gitlab.archlinux.org/pacman/pacman/-/issues/297) until pacman fixes it.
 
 `autoremove` finds unrequired dependencies with `pacman -Qdtq` and removes them with `-Rns`; with none, it says so and exits 0.
 
