@@ -231,7 +231,8 @@ paku prints
 and then dies of SIGINT itself, so a shell running it stops too, the way it would for any command stopped
 by Ctrl\-C; the shell reports 130 in
 .BR $? .
-A transaction pacman has started is left to pacman's own handling of the signal. A caller that wants to
+A transaction pacman has started is left to pacman's own handling of the signal: a Ctrl\-C during the package
+transfer reaches pacman through sudo, and a calling script sees exit 130 (it may not get the signal itself). A caller that wants to
 carry on after a Ctrl\-C has to trap SIGINT itself (for example
 .BR "trap : INT" ),
 not ignore it: paku inherits an ignored SIGINT and then can't be stopped by Ctrl\-C at all.
