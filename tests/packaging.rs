@@ -27,3 +27,27 @@ fn the_versions_agree() {
     let pkgver = PKGBUILD.lines().find_map(|l| l.strip_prefix("pkgver=")).unwrap();
     assert_eq!(pkgver, env!("CARGO_PKG_VERSION"));
 }
+
+#[test]
+fn the_full_flow_tools_are_dependencies() {
+    // paku maintain and paku check: checkupdates (with fakeroot), paccache, pacdiff, checkservices, curl
+    let depends = array("depends");
+    for package in ["pacman", "pacman-contrib", "fakeroot", "archlinux-contrib", "curl"] {
+        assert!(depends.iter().any(|d| d == package), "{package} not in {depends:?}");
+    }
+    // The helpers, flatpak, cachy-update and sudo stay the user's choice
+    let optional: Vec<String> = array_lines("optdepends");
+    for package in ["paru", "yay", "pikaur", "flatpak", "cachy-update", "sudo"] {
+        assert!(optional.iter().any(|o| o.starts_with(&format!("{package}:"))), "{package} not in {optional:?}");
+    }
+    for package in ["pacman-contrib", "fakeroot", "archlinux-contrib", "curl"] {
+        assert!(!optional.iter().any(|o| o.starts_with(&format!("{package}:"))), "{package} still optional");
+    }
+}
+
+/// The values of an array that spans lines (`optdepends=('a: x'\n 'b: y')`).
+fn array_lines(name: &str) -> Vec<String> {
+    let start = PKGBUILD.find(&format!("\n{name}=(")).unwrap() + name.len() + 3;
+    let body = &PKGBUILD[start..start + PKGBUILD[start..].find(")\n").unwrap()];
+    body.split('\'').skip(1).step_by(2).map(str::to_string).collect()
+}

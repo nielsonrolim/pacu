@@ -268,6 +268,11 @@ impl Flow<'_> {
         self.note(&format!("skipped: {why}"));
     }
 
+    /// A tool of one of paku's dependencies that isn't there anyway (a broken install, a PATH without it).
+    fn missing(&mut self, tool: &str, package: &str) {
+        self.skip(&format!("{tool} not found (paku depends on {package}; reinstall it: sudo pacman -S {package})"));
+    }
+
     fn show(&mut self, items: &[String]) {
         for item in items {
             self.note(item);
@@ -307,7 +312,7 @@ impl Flow<'_> {
     fn news(&mut self) -> Step<Option<String>> {
         self.title("Arch Linux news");
         if !self.sys.has("curl") {
-            self.skip("install curl to see the news");
+            self.missing("curl", "curl");
             return Ok(None);
         }
         let feed = self.capture(argv([
@@ -432,7 +437,7 @@ impl Flow<'_> {
     fn cache(&mut self) -> Step {
         self.title("Package cache");
         if !self.sys.has("paccache") {
-            self.skip("install pacman-contrib (paccache) to clean the package cache");
+            self.missing("paccache", "pacman-contrib");
         } else {
             let old = self.candidates(&format!("-dk{KEEP_INSTALLED}"))?;
             let gone = self.candidates(&format!("-duk{KEEP_UNINSTALLED}"))?;
@@ -466,7 +471,7 @@ impl Flow<'_> {
     fn pacnew(&mut self) -> Step {
         self.title("Configuration files to merge (.pacnew, .pacsave)");
         if !self.sys.has("pacdiff") {
-            self.skip("install pacman-contrib (pacdiff) to merge them");
+            self.missing("pacdiff", "pacman-contrib");
             return Ok(());
         }
         let files = self.query(argv(["pacdiff", "-o"]))?;
@@ -517,7 +522,7 @@ impl Flow<'_> {
     fn services(&mut self) -> Step {
         self.title("Services to restart");
         if !self.sys.has("checkservices") {
-            self.skip("install archlinux-contrib (checkservices) to find them");
+            self.missing("checkservices", "archlinux-contrib");
             return Ok(());
         }
         let ignored = self.session_units()?;
@@ -904,10 +909,18 @@ mod tests {
         f.answers = vec![true, true, false];
         assert_eq!(paku(&mut f, &["maintain"]), 0);
         assert!(f.ran.contains(&"sudo pacman -Syu".to_string()));
-        assert!(f.out.contains("skipped: install curl to see the news"));
-        assert!(f.out.contains("skipped: install pacman-contrib (paccache)"));
-        assert!(f.out.contains("skipped: install pacman-contrib (pacdiff)"));
-        assert!(f.out.contains("skipped: install archlinux-contrib (checkservices)"));
+        // They're dependencies of the package: missing anyway, each step says which package to reinstall
+        for (tool, package) in [
+            ("curl", "curl"),
+            ("paccache", "pacman-contrib"),
+            ("pacdiff", "pacman-contrib"),
+            ("checkservices", "archlinux-contrib"),
+        ] {
+            let note = format!(
+                "skipped: {tool} not found (paku depends on {package}; reinstall it: sudo pacman -S {package})"
+            );
+            assert!(f.out.contains(&note), "{note}\n{}", f.out);
+        }
         assert!(!f.out.contains("Unused Flatpak"));
         assert!(f.ran.iter().all(|l| !l.starts_with("flatpak") && !l.starts_with("curl")));
     }

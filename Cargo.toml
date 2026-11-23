@@ -1,6 +1,6 @@
 [package]
 name = "paku"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "A small package-management wrapper around an AUR helper (paru, yay or pikaur) and pacman for Arch and derivatives"
 license = "Apache-2.0"

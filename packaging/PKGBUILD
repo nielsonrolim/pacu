@@ -2,7 +2,7 @@
 # The OBS package (home:nielsonrolim, repository Arch). packaging/make-source.sh makes the source tarball
 # of a commit and this file with its sha256; to build by hand, run it and then makepkg in its output folder.
 pkgname=paku
-pkgver=0.3.1
+pkgver=0.3.2
 pkgrel=1
 pkgdesc="A small package-management wrapper around an AUR helper (paru, yay or pikaur) and pacman for Arch and derivatives"
 arch=(x86_64 aarch64)
@@ -11,19 +11,18 @@ license=(Apache-2.0)
 # 0.1.1 and 0.1.2 were published as pacu: installing paku removes that one (epoch 0) but not BlackArch's
 # unrelated pacu (epoch 1, a different program in /usr/bin/pacu). No replaces: it would offer to swap theirs
 conflicts=('pacu<1:0')
-# libgcc and glibc: what the binary links (namcap); pacman: what it runs
-depends=(glibc libgcc pacman)
+# libgcc and glibc: what the binary links (namcap); pacman: what it runs. The tools of paku maintain's and paku
+# check's full flow too: pacman-contrib (checkupdates, paccache, pacdiff), fakeroot (checkupdates needs it),
+# archlinux-contrib (checkservices) and curl (the news, paku aur-audit). The helpers, flatpak, cachy-update and
+# sudo stay optional: each has a fallback or is the user's choice
+depends=(glibc libgcc pacman pacman-contrib fakeroot archlinux-contrib curl)
 makedepends=(cargo)
 optdepends=('paru: AUR packages (search, install, upgrade), the first helper paku looks for'
             'yay: AUR packages, when paru is missing or with helper = yay'
             'pikaur: AUR packages, when paru and yay are missing or with helper = pikaur'
             'sudo: install, remove and upgrade without an AUR helper'
             'flatpak: paku upgrade and paku maintain also upgrade the Flatpaks'
-            'cachy-update: paku maintain and paku check hand off to it'
-            'curl: paku aur-audit and the Arch news in paku maintain'
-            'pacman-contrib: checkupdates (paku check without an AUR helper, paku maintain), paccache and pacdiff (paku maintain)'
-            'fakeroot: checkupdates needs it'
-            'archlinux-contrib: checkservices (the services to restart in paku maintain)')
+            'cachy-update: paku maintain and paku check hand off to it')
 source=("$pkgname-$pkgver.tar.xz")
 sha256sums=('SKIP')
 
