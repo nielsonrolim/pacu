@@ -2,7 +2,7 @@
 # The OBS package (home:nielsonrolim, repository Arch). packaging/make-source.sh makes the source tarball
 # of a commit and this file with its sha256; to build by hand, run it and then makepkg in its output folder.
 pkgname=paku
-pkgver=0.3.3
+pkgver=0.3.4
 pkgrel=1
 pkgdesc="A small package-management wrapper around an AUR helper (paru, yay or pikaur) and pacman for Arch and derivatives"
 arch=(x86_64 aarch64)

@@ -8,6 +8,7 @@
 use std::ffi::OsString;
 
 use crate::news;
+use crate::paku;
 use crate::paku::{argv, lines, stopped, Backend, Sys};
 
 /// What `paku maintain` prints (exit 1) for an argument it doesn't take.
@@ -444,6 +445,7 @@ impl Flow<'_> {
 
     fn cache(&mut self) -> Step {
         self.title("Package cache");
+        self.download_dirs()?;
         if !self.sys.has("paccache") {
             self.missing("paccache", "pacman-contrib");
         } else {
@@ -472,6 +474,25 @@ impl Flow<'_> {
                 &format!("Also clean {helper}'s caches ({helper} -Sc asks about each one)?"),
                 vec![argv([helper, "-Sc"])],
             )?;
+        }
+        Ok(())
+    }
+
+    /// The empty download dirs pacman 7 leaves in the cache (see `paku::download_dirs`): removed with no question,
+    /// they're pacman's own leftovers, and `pacman -Sc` stops on them.
+    fn download_dirs(&mut self) -> Step {
+        if self.listing {
+            let count: usize = paku::download_dirs(self.sys).iter().map(|(_, n)| n).sum();
+            if count > 0 {
+                self.note(&format!("would remove the empty ones of {count} download dir(s) pacman left in the cache"));
+            }
+            return Ok(());
+        }
+        match paku::clean_download_dirs(self.sys, self.backend.root) {
+            paku::Cleaned::Stopped => return Err(Stopped),
+            paku::Cleaned::Removed(0) | paku::Cleaned::Nothing => {}
+            paku::Cleaned::Removed(n) => self.note(&paku::removed_line(n)),
+            paku::Cleaned::Failed => self.note(paku::DOWNLOAD_DIRS_FAILED.trim_start_matches("paku: ")),
         }
         Ok(())
     }
@@ -702,7 +723,7 @@ fn bytes(size: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    use crate::paku::tests::{paku, with, Fake};
+    use crate::paku::tests::{add_leftovers, paku, with, Fake, DELETE};
 
     const FEED: &str = "<rss><channel>\
         <item><title>New one</title><link>https://archlinux.org/news/new/</link></item>\
@@ -885,6 +906,31 @@ mod tests {
             f.out
         );
         assert!(f.ran.iter().all(|l| !l.contains("--noconfirm")));
+    }
+
+    #[test]
+    fn the_cache_step_removes_pacmans_empty_download_dirs_without_asking() {
+        let mut f = busy(ALL);
+        add_leftovers(&mut f, "/var/cache/pacman/pkg/download-aB3xYz\n");
+        f.answers = vec![false; 8];
+        assert_eq!(paku(&mut f, &["maintain"]), 0);
+        let at = |l: &str| f.ran.iter().position(|r| r == l).unwrap_or_else(|| panic!("{l}: {:?}", f.ran));
+        assert!(at(&format!("sudo -n {DELETE}")) < at("paccache -dk3"));
+        assert!(
+            f.out.contains(":: Package cache\n  Removed 1 empty download dir(s) pacman left in the package cache.\n"),
+            "{}",
+            f.out
+        );
+        // Listing: said, not removed, no sudo
+        let mut f = busy(ALL);
+        add_leftovers(&mut f, "/var/cache/pacman/pkg/download-aB3xYz\n");
+        paku(&mut f, &["maintain", "--dry-run"]);
+        assert!(!f.ran.iter().any(|l| l.contains("-delete") || l == "sudo -v"), "{:?}", f.ran);
+        assert!(
+            f.out.contains("would remove the empty ones of 2 download dir(s) pacman left in the cache"),
+            "{}",
+            f.out
+        );
     }
 
     #[test]
