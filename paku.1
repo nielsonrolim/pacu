@@ -52,8 +52,14 @@ the upgrade, after a [Y/n], as
 orphans
 .RB ( "sudo pacman \-Rns" );
 unused Flatpak runtimes;
-the package cache
-.RB ( "sudo paccache \-rk3" " and " \-ruk0 ),
+the package cache (first the empty
+.I download\-*
+directories pacman left, as in
+.BR clean ,
+with no question; then
+.B "sudo paccache \-rk3"
+and
+.BR \-ruk0 ),
 then the helper's caches;
 .I .pacnew
 and
@@ -151,6 +157,22 @@ and checks the installed foreign packages against it.
 .B paru \-Sc
 (or
 .BR "sudo pacman \-Sc" ).
+First removes the empty
+.I download\-*
+directories pacman 7 leaves in the cache directories
+.RB ( "pacman\-conf CacheDir" )
+after installing a local package file (how the AUR helpers install), and in the
+.I sync
+directory of the database after a failed sync, which make
+.B \-Sc
+fail with "Error reading fd 8"; through
+.B sudo
+(not as root), and not while pacman's
+.I db.lck
+exists. A directory with a file in it (a download under way) is kept.
+This works around pacman issue #297
+.RI ( https://gitlab.archlinux.org/pacman/pacman/-/issues/297 ),
+until pacman fixes it.
 .TP
 .BR autoremove ", " orphans
 Removes the orphans

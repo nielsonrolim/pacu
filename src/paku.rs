@@ -223,7 +223,15 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
         Kind::List => sys.run(&argv(["pacman", "-Qe"])),
         Kind::Aur => sys.run(&argv(["pacman", "-Qm"])),
         Kind::AurAudit => aur_audit(sys),
-        Kind::Clean => sys.run(&backend.writes("-Sc", &[])),
+        Kind::Clean => {
+            match clean_download_dirs(sys, backend.root) {
+                Cleaned::Stopped => return 130,
+                Cleaned::Removed(0) | Cleaned::Nothing => {}
+                Cleaned::Removed(n) => sys.out(&format!("{}\n", removed_line(n))),
+                Cleaned::Failed => sys.err(DOWNLOAD_DIRS_FAILED),
+            }
+            sys.run(&backend.writes("-Sc", &[]))
+        }
         Kind::Autoremove => {
             let orphans = match sys.capture(&argv(["pacman", "-Qdtq"])) {
                 Some((_, data)) => lines(&data),
@@ -250,6 +258,141 @@ pub fn run(args: &[OsString], sys: &mut dyn Sys) -> i32 {
                 1
             }
         },
+    }
+}
+
+/// A pacman-conf value (one per line, like CacheDir), or `default` without pacman-conf or an answer.
+fn pacman_conf(sys: &mut dyn Sys, key: &str, default: &str) -> Vec<String> {
+    let found = if sys.has("pacman-conf") {
+        match sys.capture(&argv(["pacman-conf", key])) {
+            Some((0, data)) => lines(&data),
+            _ => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+    if found.is_empty() {
+        vec![default.to_string()]
+    } else {
+        found
+    }
+}
+
+/// Until pacman fixes #297 (https://gitlab.archlinux.org/pacman/pacman/-/issues/297):
+/// pacman 7 downloads as the `alpm` user (DownloadUser) into a `download-XXXXXX` dir it makes in the cache dir,
+/// and a `pacman -U` of a local file (how paru and yay install an AUR package) leaves that dir behind, empty and
+/// not readable by the user (the owner varies: alpm, or another UID when a chroot shares the cache, so it isn't
+/// checked); `pacman -Sc` then stops on it ("could not open file …/download-XXXXXX: Error reading fd 8"). A failed
+/// database sync can leave one in `<DBPath>/sync` too. The `download-*` dirs right in each cache dir and in the
+/// sync dir, by name (as the user, no sudo: the dirs can't be read, but their parents can). None while pacman
+/// holds its lock: a download may be running in one of them.
+pub(crate) fn download_dirs(sys: &mut dyn Sys) -> Vec<(String, usize)> {
+    if pacman_busy(sys) {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let sync = format!("{}/sync/", db_path(sys).trim_end_matches('/'));
+    let mut dirs = pacman_conf(sys, "CacheDir", "/var/cache/pacman/pkg/");
+    dirs.push(sync);
+    for dir in dirs {
+        if !dir.starts_with('/') {
+            continue;
+        }
+        let line = argv(["find", &dir, "-mindepth", "1", "-maxdepth", "1", "-type", "d", "-name", "download-*"]);
+        let count = match sys.capture(&line) {
+            Some((_, data)) => lines(&data).iter().filter(|l| is_download_dir(l, &dir)).count(),
+            None => 0,
+        };
+        if count > 0 {
+            found.push((dir, count));
+        }
+    }
+    found
+}
+
+/// Whether pacman holds its lock (`<DBPath>/db.lck`): a download may be under way.
+fn pacman_busy(sys: &mut dyn Sys) -> bool {
+    let db = db_path(sys);
+    sys.exists(&format!("{}/db.lck", db.trim_end_matches('/')))
+}
+
+fn db_path(sys: &mut dyn Sys) -> String {
+    pacman_conf(sys, "DBPath", "/var/lib/pacman/").remove(0)
+}
+
+/// A `download-*` entry right in `dir`, as find prints it.
+fn is_download_dir(path: &str, dir: &str) -> bool {
+    path.strip_prefix(dir.trim_end_matches('/'))
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(|name| name.starts_with("download-") && !name.contains('/'))
+}
+
+pub(crate) enum Cleaned {
+    Nothing,
+    Removed(usize),
+    /// sudo refused (or find failed): the dirs stay.
+    Failed,
+    /// Ctrl-C at sudo's password prompt.
+    Stopped,
+}
+
+pub(crate) const DOWNLOAD_DIRS_FAILED: &str =
+    "paku: couldn't remove the empty download dirs pacman left behind (pacman -Sc may stop on them)";
+
+pub(crate) fn removed_line(n: usize) -> String {
+    format!("Removed {n} empty download dir(s) pacman left behind.")
+}
+
+/// Removes the empty `download-*` dirs of `download_dirs`, as root (find -empty -delete: a dir with a file in it,
+/// a download under way, is kept). sudo -v first, on the terminal, so the sudo -n of the captured find can't hide
+/// a password prompt.
+pub(crate) fn clean_download_dirs(sys: &mut dyn Sys, root: bool) -> Cleaned {
+    let found = download_dirs(sys);
+    if found.is_empty() {
+        return Cleaned::Nothing;
+    }
+    if !root {
+        let code = sys.run(&argv(["sudo", "-v"]));
+        if stopped(sys, code) {
+            return Cleaned::Stopped;
+        }
+    }
+    let mut removed = 0;
+    let mut failed = false;
+    for (dir, _) in found {
+        // Again right before: a pacman may have started while sudo waited for the password, and its new
+        // download dir is still empty
+        if pacman_busy(sys) {
+            break;
+        }
+        let mut line = if root { Vec::new() } else { argv(["sudo", "-n"]) };
+        line.extend(argv([
+            "find",
+            &dir,
+            "-mindepth",
+            "1",
+            "-maxdepth",
+            "1",
+            "-type",
+            "d",
+            "-name",
+            "download-*",
+            "-empty",
+            "-print",
+            "-delete",
+        ]));
+        match sys.capture(&line) {
+            Some((code, data)) => {
+                removed += lines(&data).iter().filter(|l| is_download_dir(l, &dir)).count();
+                failed |= code != 0;
+            }
+            None => failed = true,
+        }
+    }
+    if failed && removed == 0 {
+        Cleaned::Failed
+    } else {
+        Cleaned::Removed(removed)
     }
 }
 
@@ -365,6 +508,8 @@ pub(crate) mod tests {
         pub(crate) last_news: Option<String>,
         pub(crate) saved_news: Option<String>,
         pub(crate) files: Vec<String>,
+        /// A file that appears when a command line runs (a pacman starting meanwhile, for example).
+        pub(crate) creates: Option<(&'static str, &'static str)>,
     }
 
     pub(crate) fn line(argv: &[OsString]) -> String {
@@ -377,6 +522,9 @@ pub(crate) mod tests {
             self.ran.push(l.clone());
             if self.interrupt_on == Some(l.as_str()) {
                 self.interrupted = true;
+            }
+            if let Some((_, file)) = self.creates.filter(|(when, _)| *when == l) {
+                self.files.push(file.to_string());
             }
             self.codes.get(&l).copied().unwrap_or(0)
         }
@@ -448,7 +596,6 @@ pub(crate) mod tests {
             (&["i", "htop", "--needed"], "H -S htop --needed"),
             (&["rm", "htop"], "H -Rns htop"),
             (&["info", "htop"], "H -Si htop"),
-            (&["clean"], "H -Sc"),
             (&["owns", "/usr/bin/pacman"], "pacman -Qo /usr/bin/pacman"),
             (&["files", "pacman"], "pacman -Ql pacman"),
             (&["list"], "pacman -Qe"),
@@ -463,6 +610,128 @@ pub(crate) mod tests {
                 assert_eq!(f.err, "", "{helper} {args:?}");
             }
         }
+    }
+
+    const PKG: &str = "/var/cache/pacman/pkg/";
+    pub(crate) const LIST: &str = "find /var/cache/pacman/pkg/ -mindepth 1 -maxdepth 1 -type d -name download-*";
+    const SYNC_LIST: &str = "find /var/lib/pacman/sync/ -mindepth 1 -maxdepth 1 -type d -name download-*";
+    pub(crate) const DELETE: &str =
+        "find /var/cache/pacman/pkg/ -mindepth 1 -maxdepth 1 -type d -name download-* -empty -print -delete";
+
+    /// pacman-conf with two cache dirs; the first has two download dirs left, and `removed` of them go.
+    fn leftovers(programs: &[&'static str], removed: &str) -> Fake {
+        let mut f = with(programs);
+        add_leftovers(&mut f, removed);
+        f
+    }
+
+    pub(crate) fn add_leftovers(f: &mut Fake, removed: &str) {
+        f.programs.push("pacman-conf");
+        f.outputs.insert("pacman-conf DBPath".into(), (0, "/var/lib/pacman/\n".into()));
+        f.outputs.insert("pacman-conf CacheDir".into(), (0, format!("{PKG}\n/srv/cache/\n")));
+        let both = "/var/cache/pacman/pkg/download-aB3xYz\n/var/cache/pacman/pkg/download-Q1w2E3\n";
+        f.outputs.insert(LIST.into(), (0, both.into()));
+        f.outputs.insert(format!("sudo -n {DELETE}"), (0, removed.into()));
+        f.outputs.insert(DELETE.into(), (0, removed.into()));
+    }
+
+    #[test]
+    fn clean_removes_the_empty_download_dirs_pacman_left_first() {
+        // Both flavours: sudo -v on the terminal, then the captured sudo -n find, then the cache cleaning
+        let gone = "/var/cache/pacman/pkg/download-aB3xYz\n/var/cache/pacman/pkg/download-Q1w2E3\n";
+        for (programs, sc) in [(&["paru"][..], "paru -Sc"), (&[], "sudo pacman -Sc")] {
+            let mut f = leftovers(programs, gone);
+            assert_eq!(paku(&mut f, &["clean"]), 0);
+            let tail: Vec<&str> = f.ran.iter().map(String::as_str).filter(|l| !l.starts_with("pacman-conf")).collect();
+            assert_eq!(
+                tail,
+                [
+                    LIST,
+                    "find /srv/cache/ -mindepth 1 -maxdepth 1 -type d -name download-*",
+                    SYNC_LIST,
+                    "sudo -v",
+                    &format!("sudo -n {DELETE}"),
+                    sc
+                ]
+            );
+            assert_eq!(f.out, "Removed 2 empty download dir(s) pacman left behind.\n");
+            assert_eq!(f.err, "");
+        }
+        // As root, no sudo
+        let mut f = Fake { root: true, ..leftovers(&[], gone) };
+        paku(&mut f, &["clean"]);
+        assert!(f.ran.contains(&DELETE.to_string()) && !f.ran.iter().any(|l| l.starts_with("sudo")), "{:?}", f.ran);
+    }
+
+    #[test]
+    fn clean_also_takes_the_sync_dir_of_a_failed_database_sync() {
+        let mut f = leftovers(&[], "");
+        f.outputs.insert(LIST.into(), (0, String::new()));
+        f.outputs.insert(SYNC_LIST.into(), (0, "/var/lib/pacman/sync/download-Zz9\n".into()));
+        let delete =
+            "sudo -n find /var/lib/pacman/sync/ -mindepth 1 -maxdepth 1 -type d -name download-* -empty -print -delete";
+        f.outputs.insert(delete.into(), (0, "/var/lib/pacman/sync/download-Zz9\n".into()));
+        paku(&mut f, &["clean"]);
+        assert!(f.ran.contains(&delete.to_string()) && !f.ran.contains(&format!("sudo -n {DELETE}")), "{:?}", f.ran);
+        assert_eq!(f.out, "Removed 1 empty download dir(s) pacman left behind.\n");
+    }
+
+    #[test]
+    fn clean_keeps_a_download_dir_in_use_and_says_nothing() {
+        // find -empty leaves a dir with a file in it: nothing printed, nothing said
+        let mut f = leftovers(&[], "");
+        paku(&mut f, &["clean"]);
+        assert!(f.ran.contains(&format!("sudo -n {DELETE}")));
+        assert_eq!((f.out.as_str(), f.err.as_str()), ("", ""));
+        // A line find printed that isn't a download dir right in the cache dir isn't counted
+        let mut f =
+            leftovers(&[], "/etc/passwd\n/var/cache/pacman/pkg/download-x/y\n/var/cache/pacman/pkg/download-ok\n");
+        paku(&mut f, &["clean"]);
+        assert_eq!(f.out, "Removed 1 empty download dir(s) pacman left behind.\n");
+    }
+
+    #[test]
+    fn clean_without_leftovers_asks_no_password() {
+        let mut f = leftovers(&[], "");
+        f.outputs.insert(LIST.into(), (0, String::new()));
+        paku(&mut f, &["clean"]);
+        assert!(!f.ran.iter().any(|l| l.starts_with("sudo -") || l.contains("-delete")), "{:?}", f.ran);
+        assert_eq!(f.ran.last().unwrap(), "sudo pacman -Sc");
+        // Without pacman-conf: the default cache dir
+        let mut f = with(&[]);
+        paku(&mut f, &["clean"]);
+        assert_eq!(f.ran, [LIST, SYNC_LIST, "sudo pacman -Sc"]);
+    }
+
+    #[test]
+    fn clean_leaves_the_download_dirs_while_pacman_holds_its_lock() {
+        let mut f = leftovers(&[], "/var/cache/pacman/pkg/download-aB3xYz\n");
+        f.files.push("/var/lib/pacman/db.lck".into());
+        paku(&mut f, &["clean"]);
+        assert!(!f.ran.iter().any(|l| l.starts_with("find") || l.starts_with("sudo -")), "{:?}", f.ran);
+        assert_eq!(f.ran.last().unwrap(), "sudo pacman -Sc");
+    }
+
+    #[test]
+    fn a_pacman_started_while_sudo_asked_keeps_its_download_dir() {
+        let mut f = leftovers(&[], "/var/cache/pacman/pkg/download-aB3xYz\n");
+        f.creates = Some(("sudo -v", "/var/lib/pacman/db.lck"));
+        paku(&mut f, &["clean"]);
+        assert!(f.ran.contains(&"sudo -v".to_string()));
+        assert!(!f.ran.iter().any(|l| l.contains("-delete")), "{:?}", f.ran);
+        assert_eq!((f.out.as_str(), f.err.as_str()), ("", ""));
+    }
+
+    #[test]
+    fn clean_goes_on_when_sudo_refuses_and_stops_on_ctrl_c() {
+        let mut f = leftovers(&[], "");
+        f.outputs.insert(format!("sudo -n {DELETE}"), (1, String::new()));
+        assert_eq!(paku(&mut f, &["clean"]), 0);
+        assert_eq!(f.err, format!("{DOWNLOAD_DIRS_FAILED}\n"));
+        assert_eq!(f.ran.last().unwrap(), "sudo pacman -Sc");
+        let mut f = Fake { interrupt_on: Some("sudo -v"), ..leftovers(&[], "") };
+        assert_eq!(paku(&mut f, &["clean"]), 130);
+        assert!(!f.ran.iter().any(|l| l.ends_with("-Sc")), "{:?}", f.ran);
     }
 
     #[test]
@@ -505,7 +774,6 @@ pub(crate) mod tests {
             (&["add", "htop"], "sudo pacman -S htop"),
             (&["uninstall", "htop"], "sudo pacman -Rns htop"),
             (&["info", "htop"], "pacman -Si htop"),
-            (&["clean"], "sudo pacman -Sc"),
             (&["check"], "pacman -Qu"),
         ];
         for (args, expected) in cases {

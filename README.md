@@ -173,7 +173,7 @@ With [`cachy-update`](https://github.com/CachyOS/cachy-update) installed, it run
 3. the upgrade, after a `[Y/n]`: as `paku upgrade`, then `flatpak update`;
 4. orphans (`sudo pacman -Rns`);
 5. unused Flatpak runtimes (`flatpak uninstall --unused`, which lists them and asks again);
-6. the package cache (`sudo paccache -rk3` and `-ruk0`), then the helper's own caches (`paru -Sc`);
+6. the package cache (first the empty `download-*` directories pacman left, as in `paku clean`, with no question; then `sudo paccache -rk3` and `-ruk0`), then the helper's own caches (`paru -Sc`);
 7. `.pacnew` and `.pacsave` files (`pacdiff --sudo`, so `$DIFFPROG` runs as you);
 8. failed system and user units, and the journal size when over 1 GiB, as information only;
 9. after an upgrade, the services running old libraries (`checkservices`, from archlinux-contrib), restarted all or none; the display managers (with the unit behind `display-manager.service`), the service of the login session paku runs in (its PAM service: `greetd`, `sshd`…), D-Bus, logind, the network services, the gettys and `user@` units are only named, never restarted;
@@ -232,6 +232,8 @@ Fetches the [Arch Linux AUR compromised-package list](https://md.archlinux.org/s
 paku clean
 paku autoremove
 ```
+
+`clean` first removes the empty `download-*` directories that pacman 7 leaves in the cache directories (`pacman-conf CacheDir`) after installing a local package file, which is how the AUR helpers install (and in `/var/lib/pacman/sync` after a failed database sync); `pacman -Sc` fails on them with `could not open file …/download-XXXXXX: Error reading fd 8`. It does that through `sudo` (not as root), leaves any directory with a file in it (a download under way), does nothing while pacman's `db.lck` exists, and prints one line when it removed something. This works around [pacman #297](https://gitlab.archlinux.org/pacman/pacman/-/issues/297) until pacman fixes it.
 
 `autoremove` finds unrequired dependencies with `pacman -Qdtq` and removes them with `-Rns`; with none, it says so and exits 0.
 
